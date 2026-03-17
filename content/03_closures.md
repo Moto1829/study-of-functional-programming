@@ -340,8 +340,9 @@ fn main() {
 
 ```rust
 /// 3引数をカリー化した形で積算する
-fn multiply3(x: i32) -> impl Fn(i32) -> impl Fn(i32) -> i32 {
-    move |y| move |z| x * y * z
+/// 安定版 Rust では `impl Fn -> impl Fn` が使えないため `Box<dyn Fn>` で返す
+fn multiply3(x: i32) -> impl Fn(i32) -> Box<dyn Fn(i32) -> i32> {
+    move |y| Box::new(move |z| x * y * z)
 }
 
 fn main() {

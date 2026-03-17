@@ -312,9 +312,12 @@ pub fn safe_pipeline(x: i32) -> Maybe<i32> {
     Maybe::Just(x).bind(step1).bind(step2).bind(step3)
 }
 
-assert_eq!(safe_pipeline(20), Maybe::Just(2));  // 100/20=5 -> 奇数 -> Nothing!
-// 実際に確認すると: 100/20=5 は奇数なので step2 で Nothing になる
-// 正しい追跡: x=20 -> step1: Just(5) -> step2: 5%2!=0 -> Nothing
+// x=50 の場合: step1: Just(100/50=2) -> step2: 2%2==0 → Just(2) -> step3: Just(2/2=1) -> Just(1)
+assert_eq!(safe_pipeline(50), Maybe::Just(1));
+// x=20 の場合: step1: Just(100/20=5) -> step2: 5%2!=0 -> Nothing
+assert_eq!(safe_pipeline(20), Maybe::Nothing);
+// x=0 の場合: step1: Nothing (ゼロ除算回避)
+assert_eq!(safe_pipeline(0),  Maybe::Nothing);
 ```
 
 ### トレイト境界を使った汎用関数

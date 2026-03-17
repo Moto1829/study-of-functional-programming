@@ -282,7 +282,7 @@ fn result_and_then_example() {
     let invalid = parse("abc")
         .map_err(|e| e.to_string())
         .and_then(ensure_positive);
-    println!("{:?}", invalid); // Err("パースエラー: ...")
+    println!("{:?}", invalid); // Err("invalid digit found in string") （ParseIntError のメッセージ）
 }
 ```
 
