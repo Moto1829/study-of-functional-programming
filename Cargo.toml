@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/pure_functions",
+    "crates/immutability",
+    "crates/higher_order_functions",
+    "crates/closures",
+    "crates/iterators",
+    "crates/pattern_matching",
+    "crates/option_and_result",
+]
+resolver = "2"
