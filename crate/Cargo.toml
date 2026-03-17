@@ -1,0 +1,3 @@
+[workspace]
+members = ["01_basics", "02_immutability", "03_closures", "04_iterators", "05_adt", "06_error_handling", "07_composition", "08_traits", "09_practice"]
+resolver = "2"
