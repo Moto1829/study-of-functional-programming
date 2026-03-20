@@ -223,6 +223,41 @@ fn main() {
 
 ---
 
+## よくある落とし穴と対処法
+
+### 落とし穴1: 副作用を持つ関数を「純粋」だと思い込む
+
+```rust
+// NG: 呼び出すたびに結果が変わる（副作用あり）
+fn current_time_greeting(name: &str) -> String {
+    let now = std::time::SystemTime::now(); // 副作用！
+    format!("{:?}: Hello, {}", now, name)
+}
+
+// OK: 副作用を引数として受け取る（純粋関数）
+fn greet_with_time(name: &str, timestamp: u64) -> String {
+    format!("[{}]: Hello, {}", timestamp, name)
+}
+```
+
+**対処法:** 外部依存（時刻・乱数・I/O）は引数として受け取るか、呼び出し側で処理する。
+
+### 落とし穴2: 参照透過性を破る隠れた状態
+
+```rust
+use std::cell::Cell;
+thread_local! { static COUNTER: Cell<i32> = Cell::new(0); }
+
+// NG: スレッドローカルな状態に依存している
+fn next_id() -> i32 {
+    COUNTER.with(|c| { c.set(c.get() + 1); c.get() })
+}
+```
+
+**対処法:** 状態を関数の引数/戻り値で明示的に渡す。
+
+---
+
 ## 章末演習問題
 
 ### 問題 1
@@ -311,38 +346,3 @@ fn greet(name: &str, timestamp: u64) -> String {
 こうすると、`greet("Alice", 1000)` は常に `"[1000] Hello, Alice!"` を返すため参照透過になります。タイムスタンプの取得（副作用）は呼び出し側に委ねます。
 
 </details>
-
----
-
-## よくある落とし穴と対処法
-
-### 落とし穴1: 副作用を持つ関数を「純粋」だと思い込む
-
-```rust
-// NG: 呼び出すたびに結果が変わる（副作用あり）
-fn current_time_greeting(name: &str) -> String {
-    let now = std::time::SystemTime::now(); // 副作用！
-    format!("{:?}: Hello, {}", now, name)
-}
-
-// OK: 副作用を引数として受け取る（純粋関数）
-fn greet_with_time(name: &str, timestamp: u64) -> String {
-    format!("[{}]: Hello, {}", timestamp, name)
-}
-```
-
-**対処法:** 外部依存（時刻・乱数・I/O）は引数として受け取るか、呼び出し側で処理する。
-
-### 落とし穴2: 参照透過性を破る隠れた状態
-
-```rust
-use std::cell::Cell;
-thread_local! { static COUNTER: Cell<i32> = Cell::new(0); }
-
-// NG: スレッドローカルな状態に依存している
-fn next_id() -> i32 {
-    COUNTER.with(|c| { c.set(c.get() + 1); c.get() })
-}
-```
-
-**対処法:** 状態を関数の引数/戻り値で明示的に渡す。

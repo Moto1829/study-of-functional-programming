@@ -463,6 +463,45 @@ Haskell では `Applicative` がこの階層の中間に入りますが、
 
 ---
 
+## よくある落とし穴と対処法
+
+### 落とし穴1: Functor / Monad の型クラスを過度に抽象化しようとする
+
+Rust には Haskell のような高カインド型（HKT）がないため、汎用的な `Functor` トレイトは実装が困難です。
+
+```rust
+// NG: Rust では直接表現できない
+trait Functor<A, B> {
+    type Mapped;
+    fn fmap(self, f: impl Fn(A) -> B) -> Self::Mapped;
+}
+```
+
+**対処法:** `Option`・`Result`・`Vec` の各メソッド（`map`・`and_then`）を直接使う。汎用抽象化は本当に必要になってから検討する。
+
+### 落とし穴2: `and_then` と `map` の混同
+
+```rust
+let opt: Option<i32> = Some(5);
+
+// map: T → U の関数（Optionにならない関数）
+let doubled: Option<i32> = opt.map(|x| x * 2);
+
+// and_then: T → Option<U> の関数（None を返す可能性がある関数）
+let result: Option<i32> = opt.and_then(|x| if x > 0 { Some(x) } else { None });
+
+// NG: and_then で通常の関数を使うと Option<Option<T>> になる
+let wrong = opt.map(|x| if x > 0 { Some(x) } else { None }); // Option<Option<i32>>
+```
+
+### 落とし穴3: モナド則を知らずにカスタム型を実装する
+
+`bind` の実装が左単位元・右単位元・結合性を満たさない場合、予期しない動作が起きます。
+
+**対処法:** 標準の `Option`・`Result` の動作を参考に、モナド則に従った実装をする。
+
+---
+
 ## 章末演習問題
 
 ### 問題 1
@@ -723,42 +762,3 @@ let result = Some(3).zip(Some("hello")); // Some((3, "hello"))
 let result = Some(3)
     .and_then(|x| if x > 0 { Some(x * 2) } else { None });
 ```
-
----
-
-## よくある落とし穴と対処法
-
-### 落とし穴1: Functor / Monad の型クラスを過度に抽象化しようとする
-
-Rust には Haskell のような高カインド型（HKT）がないため、汎用的な `Functor` トレイトは実装が困難です。
-
-```rust
-// NG: Rust では直接表現できない
-trait Functor<A, B> {
-    type Mapped;
-    fn fmap(self, f: impl Fn(A) -> B) -> Self::Mapped;
-}
-```
-
-**対処法:** `Option`・`Result`・`Vec` の各メソッド（`map`・`and_then`）を直接使う。汎用抽象化は本当に必要になってから検討する。
-
-### 落とし穴2: `and_then` と `map` の混同
-
-```rust
-let opt: Option<i32> = Some(5);
-
-// map: T → U の関数（Optionにならない関数）
-let doubled: Option<i32> = opt.map(|x| x * 2);
-
-// and_then: T → Option<U> の関数（None を返す可能性がある関数）
-let result: Option<i32> = opt.and_then(|x| if x > 0 { Some(x) } else { None });
-
-// NG: and_then で通常の関数を使うと Option<Option<T>> になる
-let wrong = opt.map(|x| if x > 0 { Some(x) } else { None }); // Option<Option<i32>>
-```
-
-### 落とし穴3: モナド則を知らずにカスタム型を実装する
-
-`bind` の実装が左単位元・右単位元・結合性を満たさない場合、予期しない動作が起きます。
-
-**対処法:** 標準の `Option`・`Result` の動作を参考に、モナド則に従った実装をする。

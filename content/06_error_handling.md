@@ -598,6 +598,63 @@ fn main() {
 
 ---
 
+## よくある落とし穴と対処法
+
+### 落とし穴1: `unwrap()` の乱用
+
+```rust
+// NG: 失敗時にパニック
+let value = some_option.unwrap();
+let result = risky_operation().unwrap();
+
+// OK: エラーを伝播する
+let value = some_option.ok_or(MyError::Missing)?;
+let result = risky_operation()?;
+```
+
+`unwrap()` はテストや確実に `Some`/`Ok` だとわかる箇所のみ使用する。
+
+### 落とし穴2: エラー型の不一致で `?` が使えない
+
+```rust
+fn foo() -> Result<(), ErrorA> {
+    bar()?; // bar は Result<(), ErrorB> を返す → エラー型不一致
+}
+```
+
+**対処法:** `anyhow::Result` を使うか、`From` トレイトで変換を実装する。
+
+### 落とし穴3: `match` で Err を無視する
+
+```rust
+// NG: エラーを黙って無視
+match risky() {
+    Ok(v) => process(v),
+    Err(_) => {}, // エラーを握りつぶす
+}
+
+// OK: ログを出すか、エラーを伝播する
+if let Err(e) = risky() {
+    eprintln!("Warning: {}", e);
+}
+```
+
+### 落とし穴4: `Option` と `Result` を混在させて複雑化
+
+```rust
+// NG: Option と Result が混在
+fn lookup_and_parse(key: &str) -> Option<Result<i32, ParseError>> {
+    map.get(key).map(|v| v.parse())
+}
+
+// OK: transpose() で整理
+fn lookup_and_parse(key: &str) -> Result<Option<i32>, ParseError> {
+    map.get(key).map(|v| v.parse::<i32>()).transpose()
+}
+```
+
+---
+
 ## 章末演習問題
 
 ### 演習 1: `Option` チェーンの実装
@@ -774,60 +831,3 @@ fn create_user(email: &str, password: &str) -> Result<String> {
 ```
 
 エラーチェーンが自動で作られるため、デバッグ時にエラーの根本原因を追跡しやすくなります。
-
----
-
-## よくある落とし穴と対処法
-
-### 落とし穴1: `unwrap()` の乱用
-
-```rust
-// NG: 失敗時にパニック
-let value = some_option.unwrap();
-let result = risky_operation().unwrap();
-
-// OK: エラーを伝播する
-let value = some_option.ok_or(MyError::Missing)?;
-let result = risky_operation()?;
-```
-
-`unwrap()` はテストや確実に `Some`/`Ok` だとわかる箇所のみ使用する。
-
-### 落とし穴2: エラー型の不一致で `?` が使えない
-
-```rust
-fn foo() -> Result<(), ErrorA> {
-    bar()?; // bar は Result<(), ErrorB> を返す → エラー型不一致
-}
-```
-
-**対処法:** `anyhow::Result` を使うか、`From` トレイトで変換を実装する。
-
-### 落とし穴3: `match` で Err を無視する
-
-```rust
-// NG: エラーを黙って無視
-match risky() {
-    Ok(v) => process(v),
-    Err(_) => {}, // エラーを握りつぶす
-}
-
-// OK: ログを出すか、エラーを伝播する
-if let Err(e) = risky() {
-    eprintln!("Warning: {}", e);
-}
-```
-
-### 落とし穴4: `Option` と `Result` を混在させて複雑化
-
-```rust
-// NG: Option と Result が混在
-fn lookup_and_parse(key: &str) -> Option<Result<i32, ParseError>> {
-    map.get(key).map(|v| v.parse())
-}
-
-// OK: transpose() で整理
-fn lookup_and_parse(key: &str) -> Result<Option<i32>, ParseError> {
-    map.get(key).map(|v| v.parse::<i32>()).transpose()
-}
-```
