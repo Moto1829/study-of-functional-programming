@@ -490,3 +490,99 @@ fn main() {
 - **カリー化**は「クロージャを返す関数」で模倣でき、部分適用を実現する手段になる
 
 次章では `Iterator` トレイトと遅延評価を学び、クロージャをさらに活用した宣言的なデータ処理を扱います。
+
+---
+
+## 強化: メモ化と遅延評価（Lazy パターン）
+
+### メモ化とは
+
+**メモ化**（Memoization）は、関数の計算結果をキャッシュしておき、同じ引数で再度呼び出された際に計算をスキップするテクニックです。
+
+```rust
+use std::collections::HashMap;
+
+pub struct Memoize<A, B> {
+    cache: HashMap<A, B>,
+    func: Box<dyn Fn(A) -> B>,
+}
+
+impl<A: Eq + std::hash::Hash + Clone, B: Clone> Memoize<A, B> {
+    pub fn new(func: impl Fn(A) -> B + 'static) -> Self {
+        Memoize { cache: HashMap::new(), func: Box::new(func) }
+    }
+
+    pub fn call(&mut self, arg: A) -> B {
+        if let Some(cached) = self.cache.get(&arg) {
+            return cached.clone();
+        }
+        let result = (self.func)(arg.clone());
+        self.cache.insert(arg, result.clone());
+        result
+    }
+}
+
+// 使用例
+let mut memo = Memoize::new(|x: i32| x * x);
+assert_eq!(memo.call(5), 25); // 計算する
+assert_eq!(memo.call(5), 25); // キャッシュから返す（計算しない）
+```
+
+### 遅延評価: Lazy<T> パターン
+
+`OnceCell<T>` を使うと、最初のアクセス時のみ計算を実行し、以降はキャッシュを返す `Lazy<T>` が実装できます。
+
+```rust
+use std::cell::OnceCell;
+
+pub struct Lazy<T> {
+    cell: OnceCell<T>,
+    init: Box<dyn Fn() -> T>,
+}
+
+impl<T> Lazy<T> {
+    pub fn new(init: impl Fn() -> T + 'static) -> Self {
+        Lazy { cell: OnceCell::new(), init: Box::new(init) }
+    }
+
+    pub fn get(&self) -> &T {
+        self.cell.get_or_init(|| (self.init)())
+    }
+}
+
+// 使用例: 高コストな計算を遅延させる
+let config = Lazy::new(|| {
+    // 設定ファイルの読み込みや重い計算を初回アクセス時にのみ実行
+    (1..=100).sum::<i32>()
+});
+
+// 実際に必要になるまで計算しない
+let value = config.get(); // ここで初めて計算される
+let value2 = config.get(); // キャッシュから返す
+```
+
+> **標準ライブラリ:** Rust 1.70 以降、`std::sync::OnceLock<T>` でスレッドセーフな遅延初期化も可能です。
+
+### メモ化フィボナッチ
+
+再帰とメモ化を組み合わせた例です:
+
+```rust
+fn fib_memo(n: u32) -> u64 {
+    let mut memo: HashMap<u32, u64> = HashMap::new();
+    fn fib_inner(n: u32, memo: &mut HashMap<u32, u64>) -> u64 {
+        if n <= 1 { return n as u64; }
+        if let Some(&v) = memo.get(&n) { return v; }
+        let result = fib_inner(n - 1, memo) + fib_inner(n - 2, memo);
+        memo.insert(n, result);
+        result
+    }
+    fib_inner(n, &mut memo)
+}
+
+assert_eq!(fib_memo(30), 832040); // 指数的な再計算を回避
+```
+
+### 純粋関数とメモ化の関係
+
+メモ化が有効に機能するのは**純粋関数**（同じ入力に対して常に同じ出力を返す副作用のない関数）に対してのみです。副作用のある関数をメモ化すると、キャッシュにより副作用がスキップされ、バグの原因になります。

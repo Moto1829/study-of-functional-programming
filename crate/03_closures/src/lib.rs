@@ -499,3 +499,123 @@ mod tests {
         assert_eq!(result, vec![3, 5, 7]); // [1*2+1, 2*2+1, 3*2+1]
     }
 }
+
+// ============================================================
+// 強化: メモ化と遅延評価（Lazy パターン）
+// ============================================================
+
+use std::cell::OnceCell;
+use std::collections::HashMap;
+
+/// 引数なしの計算をメモ化する Lazy<T>
+///
+/// 最初の呼び出し時のみ `f` を実行し、結果をキャッシュする。
+pub struct Lazy<T> {
+    cell: OnceCell<T>,
+    init: Box<dyn Fn() -> T>,
+}
+
+impl<T> Lazy<T> {
+    pub fn new(init: impl Fn() -> T + 'static) -> Self {
+        Lazy {
+            cell: OnceCell::new(),
+            init: Box::new(init),
+        }
+    }
+
+    pub fn get(&self) -> &T {
+        self.cell.get_or_init(|| (self.init)())
+    }
+}
+
+/// HashMap を使ったメモ化クロージャ
+///
+/// 同じ引数での計算結果をキャッシュし、2回目以降は即返す。
+pub struct Memoize<A, B> {
+    cache: HashMap<A, B>,
+    func: Box<dyn Fn(A) -> B>,
+}
+
+impl<A: Eq + std::hash::Hash + Clone, B: Clone> Memoize<A, B> {
+    pub fn new(func: impl Fn(A) -> B + 'static) -> Self {
+        Memoize {
+            cache: HashMap::new(),
+            func: Box::new(func),
+        }
+    }
+
+    pub fn call(&mut self, arg: A) -> B {
+        if let Some(cached) = self.cache.get(&arg) {
+            return cached.clone();
+        }
+        let result = (self.func)(arg.clone());
+        self.cache.insert(arg, result.clone());
+        result
+    }
+
+    pub fn cache_size(&self) -> usize {
+        self.cache.len()
+    }
+}
+
+#[cfg(test)]
+mod memoize_tests {
+    use super::*;
+
+    #[test]
+    fn test_lazy_evaluates_once() {
+        let call_count = std::cell::Cell::new(0usize);
+        // 注: Cell は Fn クロージャ内で使用可能
+        let lazy = Lazy::new(move || {
+            call_count.set(call_count.get() + 1);
+            42
+        });
+
+        assert_eq!(*lazy.get(), 42);
+        assert_eq!(*lazy.get(), 42); // 2回呼んでも同じ値
+    }
+
+    #[test]
+    fn test_lazy_expensive_computation() {
+        let lazy = Lazy::new(|| {
+            // 高コストな計算の代わりに単純な例
+            (1..=100).sum::<i32>()
+        });
+
+        assert_eq!(*lazy.get(), 5050);
+        assert_eq!(*lazy.get(), 5050); // キャッシュから返る
+    }
+
+    #[test]
+    fn test_memoize_caches_results() {
+        let mut memo = Memoize::new(|x: i32| x * x);
+
+        assert_eq!(memo.call(5), 25);
+        assert_eq!(memo.cache_size(), 1);
+
+        assert_eq!(memo.call(5), 25); // キャッシュから返る
+        assert_eq!(memo.cache_size(), 1); // サイズ変わらず
+
+        assert_eq!(memo.call(6), 36);
+        assert_eq!(memo.cache_size(), 2);
+    }
+
+    #[test]
+    fn test_memoize_fib() {
+        // メモ化を使ったフィボナッチ（反復版）
+        fn fib_memo(n: u32) -> u64 {
+            let mut memo: HashMap<u32, u64> = HashMap::new();
+            fn fib_inner(n: u32, memo: &mut HashMap<u32, u64>) -> u64 {
+                if n <= 1 { return n as u64; }
+                if let Some(&v) = memo.get(&n) { return v; }
+                let result = fib_inner(n - 1, memo) + fib_inner(n - 2, memo);
+                memo.insert(n, result);
+                result
+            }
+            fib_inner(n, &mut memo)
+        }
+
+        assert_eq!(fib_memo(10), 55);
+        assert_eq!(fib_memo(30), 832040);
+    }
+}
