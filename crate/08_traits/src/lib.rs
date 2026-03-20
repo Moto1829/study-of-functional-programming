@@ -568,3 +568,186 @@ mod tests {
         assert_eq!(result, vec![1, 1, 2, 1, 2, 3]);
     }
 }
+
+// ============================================================
+// 強化: Applicative の概念と Rust での近似実装
+// ============================================================
+
+// ─── Option の Applicative スタイル操作 ──────────────────────
+
+/// Option<F> と Option<A> を組み合わせる ap 関数（Applicative の ap）
+///
+/// Haskell の `<*>` に対応。
+/// `Some(f)` と `Some(a)` があれば `f(a)` を `Some` に包んで返す。
+pub fn option_ap<A, B>(f: Option<impl Fn(A) -> B>, a: Option<A>) -> Option<B> {
+    match (f, a) {
+        (Some(func), Some(val)) => Some(func(val)),
+        _ => None,
+    }
+}
+
+/// liftA2 for Option: 2引数関数を Option に持ち上げる
+///
+/// `Option<A>` と `Option<B>` があれば `f(a, b)` を `Some` に包んで返す。
+pub fn option_lift2<A, B, C>(
+    f: impl Fn(A, B) -> C,
+    a: Option<A>,
+    b: Option<B>,
+) -> Option<C> {
+    match (a, b) {
+        (Some(a_val), Some(b_val)) => Some(f(a_val, b_val)),
+        _ => None,
+    }
+}
+
+// ─── Result の Applicative スタイル操作 ──────────────────────
+
+/// ap for Result<F, E>
+pub fn result_ap<A, B, E>(
+    f: Result<impl Fn(A) -> B, E>,
+    a: Result<A, E>,
+) -> Result<B, E> {
+    match (f, a) {
+        (Ok(func), Ok(val)) => Ok(func(val)),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    }
+}
+
+/// liftA2 for Result
+pub fn result_lift2<A, B, C, E>(
+    f: impl Fn(A, B) -> C,
+    a: Result<A, E>,
+    b: Result<B, E>,
+) -> Result<C, E> {
+    match (a, b) {
+        (Ok(a_val), Ok(b_val)) => Ok(f(a_val, b_val)),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    }
+}
+
+// ─── Vec の Applicative スタイル操作 ─────────────────────────
+
+/// ap for Vec: 関数リストと値リストの全組み合わせを適用（Applicativeスタイル）
+pub fn vec_ap<A: Clone, B>(fs: &[impl Fn(A) -> B], xs: &[A]) -> Vec<B> {
+    fs.iter()
+        .flat_map(|f| xs.iter().map(move |x| f(x.clone())))
+        .collect()
+}
+
+/// liftA2 for Vec: 全組み合わせに2引数関数を適用
+pub fn vec_lift2<A: Clone, B: Clone, C>(
+    f: impl Fn(A, B) -> C,
+    xs: &[A],
+    ys: &[B],
+) -> Vec<C> {
+    let mut result = Vec::new();
+    for x in xs {
+        for y in ys {
+            result.push(f(x.clone(), y.clone()));
+        }
+    }
+    result
+}
+
+// ─── バリデーションの Applicative スタイル ────────────────────
+
+/// 複数のバリデーション結果を組み合わせる
+/// どれかが Err なら最初のエラーを返す（モナドスタイル）
+pub fn validate_user_applicative(
+    name: Result<String, String>,
+    email: Result<String, String>,
+    age: Result<u32, String>,
+) -> Result<(String, String, u32), String> {
+    match (name, email, age) {
+        (Ok(n), Ok(e), Ok(a)) => Ok((n, e, a)),
+        (Err(e), _, _) => Err(e),
+        (_, Err(e), _) => Err(e),
+        (_, _, Err(e)) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod applicative_tests {
+    use super::*;
+
+    #[test]
+    fn test_option_ap_both_some() {
+        let f: Option<fn(i32) -> i32> = Some(|x| x * 2);
+        assert_eq!(option_ap(f, Some(5)), Some(10));
+    }
+
+    #[test]
+    fn test_option_ap_none_function() {
+        let f: Option<fn(i32) -> i32> = None;
+        assert_eq!(option_ap(f, Some(5)), None);
+    }
+
+    #[test]
+    fn test_option_ap_none_value() {
+        let f: Option<fn(i32) -> i32> = Some(|x| x * 2);
+        assert_eq!(option_ap(f, None), None);
+    }
+
+    #[test]
+    fn test_option_lift2() {
+        assert_eq!(option_lift2(|a, b| a + b, Some(3), Some(4)), Some(7));
+        assert_eq!(option_lift2(|a, b: i32| a + b, Some(3), None), None);
+        assert_eq!(option_lift2(|a: i32, b| a + b, None, Some(4)), None);
+    }
+
+    #[test]
+    fn test_result_ap_both_ok() {
+        let f: Result<fn(i32) -> i32, &str> = Ok(|x| x * 3);
+        assert_eq!(result_ap(f, Ok(5)), Ok(15));
+    }
+
+    #[test]
+    fn test_result_ap_err() {
+        let f: Result<fn(i32) -> i32, &str> = Err("no function");
+        assert_eq!(result_ap(f, Ok(5)), Err("no function"));
+    }
+
+    #[test]
+    fn test_result_lift2() {
+        let result: Result<i32, &str> = result_lift2(|a, b| a + b, Ok(3), Ok(4));
+        assert_eq!(result, Ok(7));
+
+        let result: Result<i32, &str> = result_lift2(|a: i32, b: i32| a + b, Ok(3), Err("oops"));
+        assert_eq!(result, Err("oops"));
+    }
+
+    #[test]
+    fn test_vec_ap() {
+        let fs: Vec<fn(i32) -> i32> = vec![|x| x + 1, |x| x * 2];
+        let result = vec_ap(&fs, &[10, 20]);
+        // [10+1, 20+1, 10*2, 20*2] = [11, 21, 20, 40]
+        assert_eq!(result, vec![11, 21, 20, 40]);
+    }
+
+    #[test]
+    fn test_vec_lift2() {
+        let result = vec_lift2(|a, b| a + b, &[1, 2], &[10, 20]);
+        // [1+10, 1+20, 2+10, 2+20] = [11, 21, 12, 22]
+        assert_eq!(result, vec![11, 21, 12, 22]);
+    }
+
+    #[test]
+    fn test_validate_user_all_ok() {
+        let result = validate_user_applicative(
+            Ok("Alice".to_string()),
+            Ok("alice@example.com".to_string()),
+            Ok(30),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_user_name_err() {
+        let result = validate_user_applicative(
+            Err("名前が空です".to_string()),
+            Ok("alice@example.com".to_string()),
+            Ok(30),
+        );
+        assert_eq!(result, Err("名前が空です".to_string()));
+    }
+}
