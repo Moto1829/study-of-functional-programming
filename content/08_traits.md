@@ -427,7 +427,7 @@ assert_eq!(sentence, "Rust is great");
 
 ---
 
-## 8.7 全体像: Functor / Monad / Monoid の階層
+## 8.7 全体像: Functor / Applicative / Monad / Monoid の階層
 
 ```
 Monoid<T>
@@ -436,14 +436,168 @@ Monoid<T>
 
 Functor<A>
   └── fmap<B>(Self, A -> B) -> Self::Output<B>
-
-Monad<A>: Functor<A>    ← Functor を supertrait にする
-  ├── wrap(A) -> Self
-  └── bind<B>(Self, A -> Maybe<B>) -> Maybe<B>
+       ↓ (スーパートレイト)
+Applicative<A>: Functor<A>
+  ├── pure(A) -> Self                     ← 値をコンテナに包む
+  └── ap<B>(Self<A->B>, Self<A>) -> Self<B> ← コンテナ内の関数を適用
+       ↓ (スーパートレイト)
+Monad<A>: Applicative<A>
+  ├── wrap(A) -> Self                     ← Applicative::pure と同義
+  └── bind<B>(Self, A -> Self<B>) -> Self<B>
 ```
 
-Haskell では `Applicative` がこの階層の中間に入りますが、
-本章では簡略化のため `Functor -> Monad` の 2 段階で扱います。
+| 型クラス | 追加される操作 | できること |
+|---------|--------------|-----------|
+| Functor | `fmap` | コンテナ内の値を変換 |
+| Applicative | `pure`, `ap` | **独立した**複数の計算を組み合わせる |
+| Monad | `bind` | 前の結果に**依存する**計算を連鎖 |
+
+---
+
+## 8.8 Applicative の概念と Rust での実装
+
+### Applicative とは
+
+**Applicative**（アプリカティブ）は Functor と Monad の中間に位置する型クラスです。
+
+```
+Functor → Applicative → Monad
+```
+
+- **Functor**: `fmap` — 通常の関数をコンテナ内の値に適用
+- **Applicative**: `ap`、`liftA2` — **コンテナに包まれた関数**をコンテナ内の値に適用
+- **Monad**: `bind` — 前の結果に依存して次のコンテナを生成
+
+Monad との本質的な違いは「独立性」です。Applicative の計算は互いに独立しており、Monad のように前の結果を見てから次の計算を決めることはできません。
+
+### ap と liftA2（Option 版）
+
+```rust
+// ap: Option<関数> と Option<値> を組み合わせる
+pub fn option_ap<A, B>(f: Option<impl Fn(A) -> B>, a: Option<A>) -> Option<B> {
+    match (f, a) {
+        (Some(func), Some(val)) => Some(func(val)),
+        _ => None,
+    }
+}
+
+// liftA2: 2引数関数を Option に「持ち上げる」
+pub fn option_lift2<A, B, C>(
+    f: impl Fn(A, B) -> C,
+    a: Option<A>,
+    b: Option<B>,
+) -> Option<C> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(f(a, b)),
+        _ => None,
+    }
+}
+
+// 使用例
+let sum = option_lift2(|a, b| a + b, Some(3), Some(4));
+assert_eq!(sum, Some(7));
+
+let fail = option_lift2(|a, b: i32| a + b, Some(3), None);
+assert_eq!(fail, None); // どちらかが None なら None
+```
+
+### Result への応用: バリデーション
+
+Applicative スタイルは**複数の入力を独立して検証する**場面で特に有効です。
+
+```rust
+// liftA2 for Result
+pub fn result_lift2<A, B, C, E>(
+    f: impl Fn(A, B) -> C,
+    a: Result<A, E>,
+    b: Result<B, E>,
+) -> Result<C, E> {
+    match (a, b) {
+        (Ok(a), Ok(b)) => Ok(f(a, b)),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    }
+}
+
+// ユーザーフォームのバリデーション
+fn validate_name(s: &str) -> Result<String, String> {
+    if s.is_empty() { Err("名前が空です".to_string()) }
+    else { Ok(s.to_string()) }
+}
+
+fn validate_age(n: i32) -> Result<u32, String> {
+    if n < 0 || n > 150 { Err(format!("年齢 {} は範囲外です", n)) }
+    else { Ok(n as u32) }
+}
+
+// Applicative スタイル: 両方の検証を独立して実行
+let user = result_lift2(
+    |name, age| format!("{} ({}歳)", name, age),
+    validate_name("Alice"),
+    validate_age(30),
+);
+assert_eq!(user, Ok("Alice (30歳)".to_string()));
+
+// Monad スタイル（and_then）との比較:
+// Monad は前の結果に依存して次を決める
+let user2 = validate_name("Alice")
+    .and_then(|name| validate_age(30).map(|age| format!("{} ({}歳)", name, age)));
+assert_eq!(user2, Ok("Alice (30歳)".to_string()));
+```
+
+### Vec の Applicative: 全組み合わせ（デカルト積）
+
+`Vec` の Applicative は**デカルト積**（全組み合わせ）を表します。
+
+```rust
+pub fn vec_lift2<A: Clone, B: Clone, C>(
+    f: impl Fn(A, B) -> C,
+    xs: &[A],
+    ys: &[B],
+) -> Vec<C> {
+    xs.iter()
+        .flat_map(|x| ys.iter().map(move |y| f(x.clone(), y.clone())))
+        .collect()
+}
+
+// サイコロ2つの目の合計: 全9通り
+let dice = vec![1, 2, 3];
+let sums = vec_lift2(|a, b| a + b, &dice, &dice);
+// [2, 3, 4, 3, 4, 5, 4, 5, 6]
+assert_eq!(sums.len(), 9);
+```
+
+### Applicative vs Monad の使い分け
+
+```rust
+// Applicative（liftA2）: 両方の結果が独立している
+// → parse_a() と parse_b() はそれぞれ独立して実行される
+let result = option_lift2(|a, b| a + b, parse_a(), parse_b());
+
+// Monad（and_then）: 前の結果に依存して次の計算を決める
+// → parse_a() が失敗したら parse_b() も実行されない
+let result = parse_a().and_then(|a| {
+    if a > 0 { parse_b().map(|b| a + b) }
+    else { None }
+});
+```
+
+| 状況 | 使うべきパターン |
+|------|---------------|
+| 複数の入力を独立して検証したい | Applicative (`liftA2`, `zip`) |
+| 前の結果に基づいて次の処理を変えたい | Monad (`and_then`) |
+| コンテナ内の値を変換するだけ | Functor (`map`) |
+
+### Rust 標準ライブラリでの対応
+
+Rust には Applicative 型クラスはありませんが、同等の機能がメソッドとして提供されています：
+
+```rust
+// zip は liftA2((a, b) → (a, b)) の特殊ケース
+let pair = Some(3).zip(Some("hello")); // Some((3, "hello"))
+
+// Option::unzip は zip の逆
+let (a, b): (Option<i32>, Option<&str>) = Some((1, "x")).unzip();
+```
 
 ---
 
@@ -454,6 +608,7 @@ Haskell では `Applicative` がこの階層の中間に入りますが、
 | 型クラス定義 | `class Functor f where fmap :: ...` | `trait Functor<A> { fn fmap<B, F>(...) }` |
 | インスタンス宣言 | `instance Functor Maybe where ...` | `impl Functor<A> for Maybe<A> { ... }` |
 | Functor | `fmap :: (a -> b) -> f a -> f b` | `fn fmap<B, F: Fn(A)->B>(self, f: F) -> Self::Output<B>` |
+| Applicative | `pure x`, `f <*> x`, `liftA2 f x y` | `option_lift2(f, x, y)`, `x.zip(y)` |
 | Monad の bind | `(>>=) :: m a -> (a -> m b) -> m b` | `fn bind<B, F: Fn(A)->Maybe<B>>(self, f: F) -> Maybe<B>` |
 | リストモナドの bind | `xs >>= f` | `xs.into_iter().flat_map(f).collect()` |
 | Option / Result | `Maybe a` | `Option<T>` / `Result<T, E>` |
@@ -643,122 +798,3 @@ fn string_to_percent(s: &str) -> Maybe<String> {
 
 </details>
 
----
-
-## 強化: Applicative の概念と Rust での近似実装
-
-### Applicative とは
-
-**Applicative**（アプリカティブ）は、関数型プログラミングの型クラス階層の一つです。
-
-```
-Functor → Applicative → Monad
-```
-
-- **Functor**: `fmap` — コンテナ内の値に関数を適用
-- **Applicative**: `ap`、`liftA2` — コンテナ内の関数をコンテナ内の値に適用
-- **Monad**: `bind`（`>>=`） — コンテナ内の値を取り出して新しいコンテナを生成
-
-### ap と liftA2
-
-```rust
-// ap: Option<関数> と Option<値> を組み合わせる
-pub fn option_ap<A, B>(f: Option<impl Fn(A) -> B>, a: Option<A>) -> Option<B> {
-    match (f, a) {
-        (Some(func), Some(val)) => Some(func(val)),
-        _ => None,
-    }
-}
-
-// liftA2: 2引数関数を Option に「持ち上げる」
-pub fn option_lift2<A, B, C>(
-    f: impl Fn(A, B) -> C,
-    a: Option<A>,
-    b: Option<B>,
-) -> Option<C> {
-    match (a, b) {
-        (Some(a_val), Some(b_val)) => Some(f(a_val, b_val)),
-        _ => None,
-    }
-}
-
-// 使用例
-let result = option_lift2(|a, b| a + b, Some(3), Some(4));
-assert_eq!(result, Some(7));
-
-let result = option_lift2(|a, b: i32| a + b, Some(3), None);
-assert_eq!(result, None);  // どちらかが None なら None
-```
-
-### Result への応用
-
-```rust
-pub fn result_lift2<A, B, C, E>(
-    f: impl Fn(A, B) -> C,
-    a: Result<A, E>,
-    b: Result<B, E>,
-) -> Result<C, E> {
-    match (a, b) {
-        (Ok(a_val), Ok(b_val)) => Ok(f(a_val, b_val)),
-        (Err(e), _) | (_, Err(e)) => Err(e),
-    }
-}
-
-// 使用例: 2つの Result を組み合わせる
-let result: Result<i32, &str> = result_lift2(|a, b| a + b, Ok(3), Ok(4));
-assert_eq!(result, Ok(7));
-```
-
-### Vec の Applicative: 全組み合わせ
-
-`Vec` の Applicative は**デカルト積**（全組み合わせ）を表します。
-
-```rust
-pub fn vec_lift2<A: Clone, B: Clone, C>(
-    f: impl Fn(A, B) -> C,
-    xs: &[A],
-    ys: &[B],
-) -> Vec<C> {
-    let mut result = Vec::new();
-    for x in xs {
-        for y in ys {
-            result.push(f(x.clone(), y.clone()));
-        }
-    }
-    result
-}
-
-// 使用例: サイコロ2つの全組み合わせ
-let dice1 = vec![1, 2, 3];
-let dice2 = vec![1, 2, 3];
-let sums = vec_lift2(|a, b| a + b, &dice1, &dice2);
-// [2, 3, 4, 3, 4, 5, 4, 5, 6]
-```
-
-### Applicative vs Monad の違い
-
-```rust
-// Applicative（liftA2）: 両方の結果が独立している
-let result = option_lift2(|a, b| a + b, parse_a(), parse_b());
-
-// Monad（and_then）: 前の結果に依存して次の計算を決める
-let result = parse_a().and_then(|a| {
-    if a > 0 { parse_b().map(|b| a + b) }
-    else { None }
-});
-```
-
-Applicative は各計算が**独立**している場合に使い、Monad は前の結果に**依存**する場合に使います。
-
-### Rust での位置付け
-
-Rust には Applicative 型クラスはありませんが、`Option` と `Result` の `map`・`and_then`・`zip` などのメソッドが実質的に同じ機能を提供します。
-
-```rust
-// zip は liftA2 の特殊ケース（タプルにまとめる）
-let result = Some(3).zip(Some("hello")); // Some((3, "hello"))
-
-// and_then のチェーンは Monad
-let result = Some(3)
-    .and_then(|x| if x > 0 { Some(x * 2) } else { None });
-```

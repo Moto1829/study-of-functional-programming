@@ -570,7 +570,7 @@ mod tests {
 }
 
 // ============================================================
-// 強化: Applicative の概念と Rust での近似実装
+// 8.8 Applicative の概念と Rust での実装
 // ============================================================
 
 // ─── Option の Applicative スタイル操作 ──────────────────────
@@ -651,8 +651,26 @@ pub fn vec_lift2<A: Clone, B: Clone, C>(
 
 // ─── バリデーションの Applicative スタイル ────────────────────
 
-/// 複数のバリデーション結果を組み合わせる
-/// どれかが Err なら最初のエラーを返す（モナドスタイル）
+/// 名前のバリデーション（空文字列は Err）
+pub fn validate_name(s: &str) -> Result<String, String> {
+    if s.is_empty() {
+        Err("名前が空です".to_string())
+    } else {
+        Ok(s.to_string())
+    }
+}
+
+/// 年齢のバリデーション（0〜150 の範囲外は Err）
+pub fn validate_age(n: i32) -> Result<u32, String> {
+    if n < 0 || n > 150 {
+        Err(format!("年齢 {} は範囲外です", n))
+    } else {
+        Ok(n as u32)
+    }
+}
+
+/// 複数のバリデーション結果を Applicative スタイルで組み合わせる。
+/// どれかが Err なら最初のエラーを返す。
 pub fn validate_user_applicative(
     name: Result<String, String>,
     email: Result<String, String>,
@@ -749,5 +767,59 @@ mod applicative_tests {
             Ok(30),
         );
         assert_eq!(result, Err("名前が空です".to_string()));
+    }
+
+    #[test]
+    fn test_validate_name_ok() {
+        assert_eq!(validate_name("Alice"), Ok("Alice".to_string()));
+    }
+
+    #[test]
+    fn test_validate_name_empty() {
+        assert!(validate_name("").is_err());
+    }
+
+    #[test]
+    fn test_validate_age_ok() {
+        assert_eq!(validate_age(30), Ok(30));
+        assert_eq!(validate_age(0), Ok(0));
+        assert_eq!(validate_age(150), Ok(150));
+    }
+
+    #[test]
+    fn test_validate_age_out_of_range() {
+        assert!(validate_age(-1).is_err());
+        assert!(validate_age(151).is_err());
+    }
+
+    #[test]
+    fn test_lift2_with_validators() {
+        // Applicative スタイル: 独立した2つのバリデーションを組み合わせる
+        let result = result_lift2(
+            |name, age| format!("{} ({}歳)", name, age),
+            validate_name("Alice"),
+            validate_age(30),
+        );
+        assert_eq!(result, Ok("Alice (30歳)".to_string()));
+
+        let fail = result_lift2(
+            |name, age| format!("{} ({}歳)", name, age),
+            validate_name(""),
+            validate_age(30),
+        );
+        assert!(fail.is_err());
+    }
+
+    #[test]
+    fn test_applicative_vs_monad_independence() {
+        // Applicative: 両方を評価する（first が None でも second を評価）
+        // liftA2 は両引数とも評価済みの値を受け取る
+        let a: Option<i32> = None;
+        let b: Option<i32> = Some(5);
+        assert_eq!(option_lift2(|x, y| x + y, a, b), None);
+
+        // 標準の zip も同様（Applicative の特殊ケース）
+        assert_eq!(Some(3_i32).zip(Some("hello")), Some((3, "hello")));
+        assert_eq!(None::<i32>.zip(Some("hello")), None);
     }
 }
