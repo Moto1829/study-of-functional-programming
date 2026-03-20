@@ -617,3 +617,81 @@ fn main() {
     assert_eq!(avg, vec![2.0, 3.0, 4.0]);
 }
 ```
+
+---
+
+## 強化: rayon による並列イテレータ
+
+### rayon とは
+
+**rayon** は Rust の並列処理ライブラリで、通常のイテレータを並列イテレータに簡単に変換できます。`.iter()` を `.par_iter()` に変えるだけでマルチコアを活用できます。
+
+```toml
+# Cargo.toml
+[dependencies]
+rayon = "1"
+```
+
+### 基本的な使い方
+
+```rust
+use rayon::prelude::*;
+
+let data: Vec<i64> = (1..=1000).collect();
+
+// 通常のイテレータ
+let seq_sum: i64 = data.iter().map(|&x| x * x).sum();
+
+// 並列イテレータ（.iter() → .par_iter() に変えるだけ）
+let par_sum: i64 = data.par_iter().map(|&x| x * x).sum();
+
+assert_eq!(seq_sum, par_sum); // 結果は同じ
+```
+
+### 並列 map / filter / sum
+
+```rust
+// 並列 map
+let squares: Vec<i64> = data.par_iter().map(|&x| x * x).collect();
+
+// 並列 filter
+let positives: Vec<i64> = data.par_iter()
+    .filter(|&&x| x > 0)
+    .copied()
+    .collect();
+
+// 並列 sum
+let total: i64 = data.par_iter().sum();
+```
+
+### 並列パイプライン
+
+複数のアダプタをつなげても並列で動作します:
+
+```rust
+let result: i64 = data.par_iter()
+    .map(|&x| x * 2)
+    .filter(|&x| x > 100)
+    .sum();
+```
+
+### 注意点
+
+| 観点 | 説明 |
+|------|------|
+| **順序** | `par_iter()` の結果の順序は保証されない（`collect()` はソートされない）。順序が必要なら `sort()` を追加する |
+| **純粋関数** | `map` / `filter` に渡すクロージャは純粋である必要がある（共有状態を変更しない） |
+| **オーバーヘッド** | 少量のデータではスレッド生成コストが上回ることがある。大きなデータセットで効果的 |
+
+### 通常のイテレータとの使い分け
+
+```rust
+let small: Vec<i64> = (1..=10).collect();
+// 少量データ: 通常イテレータの方が速い
+let _ = small.iter().map(|&x| x * x).collect::<Vec<_>>();
+
+let large: Vec<i64> = (1..=1_000_000).collect();
+// 大量データ: rayon が効果的
+let _ = large.par_iter().map(|&x| x * x).collect::<Vec<_>>();
+```
+

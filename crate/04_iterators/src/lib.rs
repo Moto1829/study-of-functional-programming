@@ -654,3 +654,77 @@ mod tests {
         assert_eq!(result, vec![]);
     }
 }
+
+// ============================================================
+// 強化: rayon による並列イテレータ
+// ============================================================
+
+use rayon::prelude::*;
+
+/// rayon の par_iter() を使った並列 map
+pub fn parallel_map(data: &[i64]) -> Vec<i64> {
+    data.par_iter().map(|&x| x * x).collect()
+}
+
+/// rayon の par_iter() を使った並列 filter + collect
+pub fn parallel_filter_positive(data: &[i64]) -> Vec<i64> {
+    data.par_iter().filter(|&&x| x > 0).copied().collect()
+}
+
+/// rayon の par_iter().sum() による並列合計
+pub fn parallel_sum(data: &[i64]) -> i64 {
+    data.par_iter().sum()
+}
+
+/// rayon の par_iter() を使ったチェーン（map + filter + sum）
+pub fn parallel_pipeline(data: &[i64], threshold: i64) -> i64 {
+    data.par_iter()
+        .map(|&x| x * 2)
+        .filter(|&x| x > threshold)
+        .sum()
+}
+
+#[cfg(test)]
+mod rayon_tests {
+    use super::*;
+
+    #[test]
+    fn test_parallel_map() {
+        let data = vec![1i64, 2, 3, 4, 5];
+        let mut result = parallel_map(&data);
+        result.sort(); // 並列なので順序が変わる可能性がある
+        assert_eq!(result, vec![1, 4, 9, 16, 25]);
+    }
+
+    #[test]
+    fn test_parallel_filter_positive() {
+        let data = vec![-3i64, -1, 0, 2, 4, 6];
+        let mut result = parallel_filter_positive(&data);
+        result.sort();
+        assert_eq!(result, vec![2, 4, 6]);
+    }
+
+    #[test]
+    fn test_parallel_sum() {
+        let data: Vec<i64> = (1..=100).collect();
+        assert_eq!(parallel_sum(&data), 5050);
+    }
+
+    #[test]
+    fn test_parallel_pipeline() {
+        let data = vec![1i64, 2, 3, 4, 5];
+        // map(x*2): [2, 4, 6, 8, 10]
+        // filter(>5): [6, 8, 10]
+        // sum: 24
+        let result = parallel_pipeline(&data, 5);
+        assert_eq!(result, 24);
+    }
+
+    #[test]
+    fn test_parallel_vs_sequential_consistency() {
+        let data: Vec<i64> = (1..=1000).collect();
+        let sequential: i64 = data.iter().map(|&x| x * x).sum();
+        let parallel: i64 = data.par_iter().map(|&x| x * x).sum();
+        assert_eq!(sequential, parallel);
+    }
+}
