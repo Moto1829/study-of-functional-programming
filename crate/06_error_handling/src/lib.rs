@@ -758,3 +758,159 @@ mod tests {
         assert!(matches!(r, Err(AppError::ParseError(_))));
     }
 }
+
+// ============================================================
+// 強化: thiserror と anyhow の実用的な使い方
+// ============================================================
+
+// ─── thiserror によるドメインエラー定義 ──────────────────────
+
+use thiserror::Error;
+
+/// thiserror を使ったドメインエラー
+#[derive(Debug, Error)]
+pub enum UserError {
+    #[error("ユーザーが見つかりません: id={0}")]
+    NotFound(u32),
+
+    #[error("メールアドレスの形式が不正です: {email}")]
+    InvalidEmail { email: String },
+
+    #[error("パスワードが短すぎます: {len}文字 (最低{min}文字必要)")]
+    PasswordTooShort { len: usize, min: usize },
+}
+
+/// thiserror を使ったインフラエラー
+#[derive(Debug, Error)]
+pub enum InfraError {
+    #[error("データベースエラー: {0}")]
+    Database(String),
+
+    #[error("ネットワークエラー: {0}")]
+    Network(String),
+}
+
+/// thiserror でエラーのラップ（#[from] 属性）
+#[derive(Debug, Error)]
+pub enum ServiceError {
+    #[error("ユーザーエラー: {0}")]
+    User(#[from] UserError),
+
+    #[error("インフラエラー: {0}")]
+    Infra(#[from] InfraError),
+}
+
+/// thiserror を使ったバリデーション関数
+pub fn validate_email(email: &str) -> Result<(), UserError> {
+    if email.contains('@') {
+        Ok(())
+    } else {
+        Err(UserError::InvalidEmail { email: email.to_string() })
+    }
+}
+
+pub fn validate_password(password: &str) -> Result<(), UserError> {
+    const MIN_LEN: usize = 8;
+    if password.len() >= MIN_LEN {
+        Ok(())
+    } else {
+        Err(UserError::PasswordTooShort { len: password.len(), min: MIN_LEN })
+    }
+}
+
+// ─── anyhow によるアプリケーション層エラー処理 ───────────────
+
+use anyhow::{Context, Result as AnyResult, bail, ensure};
+
+/// anyhow を使ったシンプルなエラー処理
+pub fn parse_port(s: &str) -> AnyResult<u16> {
+    let port: u16 = s.parse().context("ポート番号は数値で指定してください")?;
+    ensure!(port > 0, "ポート番号は1以上である必要があります");
+    Ok(port)
+}
+
+/// anyhow の bail! マクロ
+pub fn check_age(age: i32) -> AnyResult<()> {
+    if age < 0 {
+        bail!("年齢は0以上でなければなりません: {}", age);
+    }
+    if age > 150 {
+        bail!("現実的な年齢を入力してください: {}", age);
+    }
+    Ok(())
+}
+
+/// anyhow と thiserror の組み合わせ
+/// ドメイン層: thiserror でエラーを定義
+/// アプリケーション層: anyhow でエラーを伝播
+pub fn create_user(email: &str, password: &str) -> AnyResult<String> {
+    validate_email(email)
+        .context("メールアドレスのバリデーションに失敗しました")?;
+    validate_password(password)
+        .context("パスワードのバリデーションに失敗しました")?;
+
+    Ok(format!("ユーザー作成成功: {}", email))
+}
+
+#[cfg(test)]
+mod thiserror_anyhow_tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_email_valid() {
+        assert!(validate_email("user@example.com").is_ok());
+    }
+
+    #[test]
+    fn test_validate_email_invalid() {
+        let err = validate_email("not-an-email").unwrap_err();
+        assert!(matches!(err, UserError::InvalidEmail { .. }));
+        assert!(err.to_string().contains("not-an-email"));
+    }
+
+    #[test]
+    fn test_validate_password_short() {
+        let err = validate_password("abc").unwrap_err();
+        assert!(matches!(err, UserError::PasswordTooShort { len: 3, min: 8 }));
+    }
+
+    #[test]
+    fn test_parse_port_valid() {
+        assert_eq!(parse_port("8080").unwrap(), 8080);
+    }
+
+    #[test]
+    fn test_parse_port_invalid_format() {
+        let err = parse_port("abc").unwrap_err();
+        assert!(err.to_string().contains("ポート番号は数値"));
+    }
+
+    #[test]
+    fn test_check_age_negative() {
+        assert!(check_age(-1).is_err());
+    }
+
+    #[test]
+    fn test_check_age_valid() {
+        assert!(check_age(25).is_ok());
+    }
+
+    #[test]
+    fn test_create_user_success() {
+        let result = create_user("alice@example.com", "securepass").unwrap();
+        assert!(result.contains("alice@example.com"));
+    }
+
+    #[test]
+    fn test_create_user_invalid_email() {
+        let err = create_user("not-email", "securepass").unwrap_err();
+        assert!(err.to_string().contains("メールアドレス"));
+    }
+
+    #[test]
+    fn test_service_error_from_user_error() {
+        let user_err = UserError::NotFound(42);
+        let svc_err: ServiceError = user_err.into();
+        assert!(matches!(svc_err, ServiceError::User(_)));
+    }
+}

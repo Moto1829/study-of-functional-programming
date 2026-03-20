@@ -671,3 +671,106 @@ fn sum_valid_strings(inputs: &[&str]) -> i32 {
 `sum_strings(&["1", "2", "3"])` → `Ok(6)`
 `sum_strings(&["1", "abc", "3"])` → `Err(...)`
 `sum_valid_strings(&["1", "abc", "3", "xyz", "5"])` → `9`
+
+---
+
+## 強化: anyhow / thiserror の実用的な使い方
+
+### 使い分けの原則
+
+| ライブラリ | 用途 | 場面 |
+|-----------|------|------|
+| `thiserror` | ドメインエラーの定義 | ライブラリ・コアロジック |
+| `anyhow` | エラーの伝播・集約 | アプリケーション層・`main()` |
+
+```toml
+[dependencies]
+thiserror = "2"
+anyhow = "1"
+```
+
+### thiserror によるエラー定義
+
+`#[derive(Error)]` と `#[error("...")]` でエラーメッセージを宣言的に記述できます。
+
+```rust
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum UserError {
+    #[error("ユーザーが見つかりません: id={0}")]
+    NotFound(u32),
+
+    #[error("メールアドレスの形式が不正です: {email}")]
+    InvalidEmail { email: String },
+
+    #[error("パスワードが短すぎます: {len}文字 (最低{min}文字必要)")]
+    PasswordTooShort { len: usize, min: usize },
+}
+```
+
+#### `#[from]` でエラーの自動変換
+
+```rust
+#[derive(Debug, Error)]
+pub enum ServiceError {
+    #[error("ユーザーエラー: {0}")]
+    User(#[from] UserError),   // UserError → ServiceError が自動実装
+
+    #[error("インフラエラー: {0}")]
+    Infra(#[from] InfraError),
+}
+
+// ? 演算子で自動変換
+fn service_fn() -> Result<(), ServiceError> {
+    validate_email("bad")?;  // UserError が ServiceError に変換される
+    Ok(())
+}
+```
+
+### anyhow によるエラー処理
+
+`anyhow::Result<T>` は `Result<T, anyhow::Error>` の型エイリアスで、どんなエラー型も受け取れます。
+
+```rust
+use anyhow::{Context, Result, bail, ensure};
+
+fn parse_port(s: &str) -> Result<u16> {
+    // .context() でエラーにコンテキストを追加
+    let port: u16 = s.parse().context("ポート番号は数値で指定してください")?;
+
+    // ensure! で条件チェック（偽なら Err を返す）
+    ensure!(port > 0, "ポート番号は1以上である必要があります");
+
+    Ok(port)
+}
+
+fn check_age(age: i32) -> Result<()> {
+    if age < 0 {
+        // bail! で即 Err を返す
+        bail!("年齢は0以上でなければなりません: {}", age);
+    }
+    Ok(())
+}
+```
+
+### 組み合わせパターン
+
+ドメイン層で `thiserror`、アプリケーション層で `anyhow` を使うのが実践的です。
+
+```rust
+use anyhow::{Context, Result};
+
+fn create_user(email: &str, password: &str) -> Result<String> {
+    // thiserror のエラーを anyhow でラップ
+    validate_email(email)
+        .context("メールアドレスのバリデーションに失敗しました")?;
+
+    validate_password(password)
+        .context("パスワードのバリデーションに失敗しました")?;
+
+    Ok(format!("ユーザー作成成功: {}", email))
+}
+```
+
+エラーチェーンが自動で作られるため、デバッグ時にエラーの根本原因を追跡しやすくなります。
