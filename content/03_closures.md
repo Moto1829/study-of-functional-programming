@@ -8,7 +8,8 @@
 4. [高階関数](#4-高階関数)
 5. [関数ポインタとクロージャの違い](#5-関数ポインタとクロージャの違い)
 6. [カリー化の模倣パターン](#6-カリー化の模倣パターン)
-7. [章末演習問題](#7-章末演習問題)
+7. [メモ化と遅延評価](#7-メモ化と遅延評価)
+8. [章末演習問題](#8-章末演習問題)
 
 ---
 
@@ -369,7 +370,119 @@ fn main() {
 
 ---
 
-## 7. 章末演習問題
+## 7. メモ化と遅延評価
+
+クロージャと高階関数を使った実用的なパターンとして、**メモ化**と**遅延評価**があります。どちらも「計算のタイミングを制御する」ことが目的です。
+
+### メモ化（Memoization）
+
+**メモ化**は、関数の計算結果をキャッシュしておき、同じ引数で再度呼び出された際に計算をスキップするテクニックです。
+
+メモ化が有効に機能するのは**純粋関数**（同じ入力に対して常に同じ出力を返す副作用のない関数）に対してのみです。
+
+```rust
+use std::collections::HashMap;
+
+pub struct Memoize<A, B> {
+    cache: HashMap<A, B>,
+    func: Box<dyn Fn(A) -> B>,
+}
+
+impl<A: Eq + std::hash::Hash + Clone, B: Clone> Memoize<A, B> {
+    pub fn new(func: impl Fn(A) -> B + 'static) -> Self {
+        Memoize { cache: HashMap::new(), func: Box::new(func) }
+    }
+
+    pub fn call(&mut self, arg: A) -> B {
+        if let Some(cached) = self.cache.get(&arg) {
+            return cached.clone();
+        }
+        let result = (self.func)(arg.clone());
+        self.cache.insert(arg, result.clone());
+        result
+    }
+}
+
+let mut memo = Memoize::new(|x: i32| {
+    println!("計算中: {}", x); // 初回のみ実行される
+    x * x
+});
+
+println!("{}", memo.call(5)); // 計算中: 5 → 25
+println!("{}", memo.call(5)); // キャッシュから返る（計算なし） → 25
+println!("{}", memo.call(6)); // 計算中: 6 → 36
+```
+
+### メモ化フィボナッチ
+
+再帰とメモ化を組み合わせると指数的な計算量を線形に削減できます：
+
+```rust
+fn fib_memo(n: u32) -> u64 {
+    let mut memo: HashMap<u32, u64> = HashMap::new();
+    fn fib_inner(n: u32, memo: &mut HashMap<u32, u64>) -> u64 {
+        if n <= 1 { return n as u64; }
+        if let Some(&v) = memo.get(&n) { return v; }
+        let result = fib_inner(n - 1, memo) + fib_inner(n - 2, memo);
+        memo.insert(n, result);
+        result
+    }
+    fib_inner(n, &mut memo)
+}
+
+assert_eq!(fib_memo(30), 832040); // 指数的な再計算を回避
+```
+
+### 遅延評価: `Lazy<T>` パターン
+
+**遅延評価**（Lazy Evaluation）は、値が実際に必要になるまで計算を遅らせる技法です。高コストな初期化（設定ファイルの読み込みなど）を最初のアクセス時まで遅らせられます。
+
+`OnceCell<T>` を使うと `Lazy<T>` が実装できます：
+
+```rust
+use std::cell::OnceCell;
+
+pub struct Lazy<T> {
+    cell: OnceCell<T>,
+    init: Box<dyn Fn() -> T>,
+}
+
+impl<T> Lazy<T> {
+    pub fn new(init: impl Fn() -> T + 'static) -> Self {
+        Lazy { cell: OnceCell::new(), init: Box::new(init) }
+    }
+
+    pub fn get(&self) -> &T {
+        self.cell.get_or_init(|| (self.init)())
+    }
+}
+
+// 高コストな計算を遅延させる
+let config = Lazy::new(|| {
+    println!("設定を読み込み中...");
+    (1..=100).sum::<i32>()
+});
+
+// 実際に必要になるまで計算しない
+let value = config.get(); // ここで初めて計算される
+let value2 = config.get(); // キャッシュから返す
+assert_eq!(*value, *value2);
+```
+
+> **標準ライブラリ:** Rust 1.70 以降では `std::sync::OnceLock<T>` でスレッドセーフな遅延初期化も可能です。
+
+### メモ化と純粋関数の関係
+
+| 条件 | メモ化の結果 |
+|------|-----------|
+| 純粋関数（副作用なし） | 安全・有効 |
+| 副作用のある関数 | キャッシュにより副作用がスキップされバグの原因に |
+| 非常に高コストな計算 | 大きな効果（フィボナッチ、動的計画法など） |
+| 安価な計算 | キャッシュのオーバーヘッドで逆効果になる場合も |
+
+---
+
+## 8. 章末演習問題
 
 ### 問題 1: compose 関数の実装
 
@@ -488,101 +601,8 @@ fn main() {
 - **高階関数**は関数を引数や戻り値として扱うことで、汎用的で合成可能なコードを書ける
 - **関数ポインタ** (`fn`) は環境をキャプチャできないが軽量である
 - **カリー化**は「クロージャを返す関数」で模倣でき、部分適用を実現する手段になる
+- **メモ化**は純粋関数の結果をキャッシュして再計算を防ぐ。`Memoize<A, B>` で汎用化できる
+- **遅延評価**は `OnceCell` を使った `Lazy<T>` パターンで実現でき、高コストな計算を必要になるまで遅らせる
 
 次章では `Iterator` トレイトと遅延評価を学び、クロージャをさらに活用した宣言的なデータ処理を扱います。
 
----
-
-## 強化: メモ化と遅延評価（Lazy パターン）
-
-### メモ化とは
-
-**メモ化**（Memoization）は、関数の計算結果をキャッシュしておき、同じ引数で再度呼び出された際に計算をスキップするテクニックです。
-
-```rust
-use std::collections::HashMap;
-
-pub struct Memoize<A, B> {
-    cache: HashMap<A, B>,
-    func: Box<dyn Fn(A) -> B>,
-}
-
-impl<A: Eq + std::hash::Hash + Clone, B: Clone> Memoize<A, B> {
-    pub fn new(func: impl Fn(A) -> B + 'static) -> Self {
-        Memoize { cache: HashMap::new(), func: Box::new(func) }
-    }
-
-    pub fn call(&mut self, arg: A) -> B {
-        if let Some(cached) = self.cache.get(&arg) {
-            return cached.clone();
-        }
-        let result = (self.func)(arg.clone());
-        self.cache.insert(arg, result.clone());
-        result
-    }
-}
-
-// 使用例
-let mut memo = Memoize::new(|x: i32| x * x);
-assert_eq!(memo.call(5), 25); // 計算する
-assert_eq!(memo.call(5), 25); // キャッシュから返す（計算しない）
-```
-
-### 遅延評価: `Lazy<T>` パターン
-
-`OnceCell<T>` を使うと、最初のアクセス時のみ計算を実行し、以降はキャッシュを返す `Lazy<T>` が実装できます。
-
-```rust
-use std::cell::OnceCell;
-
-pub struct Lazy<T> {
-    cell: OnceCell<T>,
-    init: Box<dyn Fn() -> T>,
-}
-
-impl<T> Lazy<T> {
-    pub fn new(init: impl Fn() -> T + 'static) -> Self {
-        Lazy { cell: OnceCell::new(), init: Box::new(init) }
-    }
-
-    pub fn get(&self) -> &T {
-        self.cell.get_or_init(|| (self.init)())
-    }
-}
-
-// 使用例: 高コストな計算を遅延させる
-let config = Lazy::new(|| {
-    // 設定ファイルの読み込みや重い計算を初回アクセス時にのみ実行
-    (1..=100).sum::<i32>()
-});
-
-// 実際に必要になるまで計算しない
-let value = config.get(); // ここで初めて計算される
-let value2 = config.get(); // キャッシュから返す
-```
-
-> **標準ライブラリ:** Rust 1.70 以降、`std::sync::OnceLock<T>` でスレッドセーフな遅延初期化も可能です。
-
-### メモ化フィボナッチ
-
-再帰とメモ化を組み合わせた例です:
-
-```rust
-fn fib_memo(n: u32) -> u64 {
-    let mut memo: HashMap<u32, u64> = HashMap::new();
-    fn fib_inner(n: u32, memo: &mut HashMap<u32, u64>) -> u64 {
-        if n <= 1 { return n as u64; }
-        if let Some(&v) = memo.get(&n) { return v; }
-        let result = fib_inner(n - 1, memo) + fib_inner(n - 2, memo);
-        memo.insert(n, result);
-        result
-    }
-    fib_inner(n, &mut memo)
-}
-
-assert_eq!(fib_memo(30), 832040); // 指数的な再計算を回避
-```
-
-### 純粋関数とメモ化の関係
-
-メモ化が有効に機能するのは**純粋関数**（同じ入力に対して常に同じ出力を返す副作用のない関数）に対してのみです。副作用のある関数をメモ化すると、キャッシュにより副作用がスキップされ、バグの原因になります。
