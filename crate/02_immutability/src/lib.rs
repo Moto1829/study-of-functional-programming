@@ -336,6 +336,111 @@ impl Default for Config {
 }
 
 // ---------------------------------------------------------------------------
+// Section 6: 永続データ構造（Persistent Data Structure）
+// ---------------------------------------------------------------------------
+
+use std::rc::Rc;
+
+/// 永続連結リスト。
+///
+/// `Rc<T>` による参照カウントと構造共有（Structural Sharing）で、
+/// 更新後も古いバージョンが O(1) のコストで保存される。
+#[derive(Debug, Clone, PartialEq)]
+pub enum PersistentList<T> {
+    /// 空リスト
+    Nil,
+    /// 先頭要素 + 残りのリストへの共有参照
+    Cons(T, Rc<PersistentList<T>>),
+}
+
+impl<T: Clone> PersistentList<T> {
+    /// 空の永続リストを作る。
+    pub fn empty() -> Rc<Self> {
+        Rc::new(PersistentList::Nil)
+    }
+
+    /// 先頭に `value` を追加した新しいリストを返す。
+    ///
+    /// `tail` を共有するため O(1)。元のリストは変わらない。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use immutability::PersistentList;
+    /// use std::rc::Rc;
+    ///
+    /// let list = PersistentList::cons(1,
+    ///     PersistentList::cons(2, PersistentList::empty()));
+    /// assert_eq!(list.head(), Some(&1));
+    /// ```
+    pub fn cons(value: T, tail: Rc<Self>) -> Rc<Self> {
+        Rc::new(PersistentList::Cons(value, tail))
+    }
+
+    /// 先頭要素への参照を返す。空なら `None`。
+    pub fn head(&self) -> Option<&T> {
+        match self {
+            PersistentList::Cons(v, _) => Some(v),
+            PersistentList::Nil => None,
+        }
+    }
+
+    /// 先頭を除いた残りのリストへの参照を返す。空なら `None`。
+    pub fn tail_ref(&self) -> Option<Rc<Self>> {
+        match self {
+            PersistentList::Cons(_, tail) => Some(Rc::clone(tail)),
+            PersistentList::Nil => None,
+        }
+    }
+
+    /// リストの長さを返す（O(n)）。
+    pub fn len(&self) -> usize {
+        match self {
+            PersistentList::Nil => 0,
+            PersistentList::Cons(_, tail) => 1 + tail.len(),
+        }
+    }
+
+    /// 空かどうかを返す。
+    pub fn is_empty(&self) -> bool {
+        matches!(self, PersistentList::Nil)
+    }
+
+    /// リストを `Vec` に変換する（テスト用途）。
+    pub fn to_vec(&self) -> Vec<T> {
+        let mut result = Vec::new();
+        let mut current: &PersistentList<T> = self;
+        loop {
+            match current {
+                PersistentList::Nil => break,
+                PersistentList::Cons(v, tail) => {
+                    result.push(v.clone());
+                    current = tail;
+                }
+            }
+        }
+        result
+    }
+}
+
+/// 永続スタックの push 操作。
+///
+/// 元のスタックは変えず、新しい先頭を持つスタックを返す。
+pub fn stack_push<T: Clone>(stack: Rc<PersistentList<T>>, value: T) -> Rc<PersistentList<T>> {
+    PersistentList::cons(value, stack)
+}
+
+/// 永続スタックの pop 操作。
+///
+/// 先頭要素と残りのスタックをタプルで返す。空なら `None`。
+pub fn stack_pop<T: Clone>(stack: &Rc<PersistentList<T>>) -> Option<(T, Rc<PersistentList<T>>)> {
+    match stack.as_ref() {
+        PersistentList::Nil => None,
+        PersistentList::Cons(v, tail) => Some((v.clone(), Rc::clone(tail))),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // テスト
 // ---------------------------------------------------------------------------
 
@@ -502,5 +607,97 @@ mod tests {
         assert_eq!(DEFAULT_TIMEOUT_SECS, 30);
         assert_eq!(SMALL_PRIMES[0], 2);
         assert_eq!(SMALL_PRIMES.len(), 6);
+    }
+
+    // --- Section 6: 永続データ構造 ---
+
+    #[test]
+    fn test_persistent_list_empty() {
+        let list: Rc<PersistentList<i32>> = PersistentList::empty();
+        assert!(list.is_empty());
+        assert_eq!(list.len(), 0);
+        assert_eq!(list.head(), None);
+    }
+
+    #[test]
+    fn test_persistent_list_cons() {
+        let list = PersistentList::cons(
+            1,
+            PersistentList::cons(2, PersistentList::cons(3, PersistentList::empty())),
+        );
+        assert_eq!(list.head(), Some(&1));
+        assert_eq!(list.len(), 3);
+        assert_eq!(list.to_vec(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_persistent_list_structural_sharing() {
+        // base = [1, 2, 3]
+        let base = PersistentList::cons(
+            1,
+            PersistentList::cons(2, PersistentList::cons(3, PersistentList::empty())),
+        );
+
+        // extended = [0, 1, 2, 3]  ← base の先頭を共有
+        let extended = PersistentList::cons(0, Rc::clone(&base));
+
+        // base は変わらない
+        assert_eq!(base.to_vec(), vec![1, 2, 3]);
+        assert_eq!(extended.to_vec(), vec![0, 1, 2, 3]);
+
+        // 構造共有: extended の tail と base は同じ Rc を指す
+        let extended_tail = extended.tail_ref().unwrap();
+        assert!(Rc::ptr_eq(&base, &extended_tail));
+    }
+
+    #[test]
+    fn test_persistent_list_multiple_versions() {
+        let v0 = PersistentList::empty();
+        let v1 = PersistentList::cons(10, Rc::clone(&v0));
+        let v2 = PersistentList::cons(20, Rc::clone(&v1));
+        let v3 = PersistentList::cons(30, Rc::clone(&v2));
+
+        // v3 を作った後も v0, v1, v2 は保存されている
+        assert_eq!(v0.to_vec(), Vec::<i32>::new());
+        assert_eq!(v1.to_vec(), vec![10]);
+        assert_eq!(v2.to_vec(), vec![20, 10]);
+        assert_eq!(v3.to_vec(), vec![30, 20, 10]);
+    }
+
+    #[test]
+    fn test_stack_push_pop() {
+        let s0 = PersistentList::empty();
+        let s1 = stack_push(s0, 10);
+        let s2 = stack_push(Rc::clone(&s1), 20);
+        let s3 = stack_push(Rc::clone(&s2), 30);
+
+        // pop は先頭と残りを返す
+        let (top, rest) = stack_pop(&s3).unwrap();
+        assert_eq!(top, 30);
+        assert_eq!(rest.head(), Some(&20));
+
+        // 元のスタックは変わらない
+        assert_eq!(s2.head(), Some(&20));
+        assert_eq!(s1.head(), Some(&10));
+    }
+
+    #[test]
+    fn test_stack_pop_empty() {
+        let empty: Rc<PersistentList<i32>> = PersistentList::empty();
+        assert_eq!(stack_pop(&empty), None);
+    }
+
+    #[test]
+    fn test_persistent_list_immutability() {
+        // 元のリストへの参照を保持しつつ、別のバージョンを作れる
+        let original = PersistentList::cons(5, PersistentList::empty());
+        let snapshot = Rc::clone(&original);
+
+        let extended = PersistentList::cons(99, Rc::clone(&original));
+
+        // original（snapshot 経由）は変わっていない
+        assert_eq!(snapshot.head(), Some(&5));
+        assert_eq!(extended.head(), Some(&99));
+        assert_eq!(extended.tail_ref().unwrap().head(), Some(&5));
     }
 }

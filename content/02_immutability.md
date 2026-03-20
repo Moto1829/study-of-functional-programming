@@ -255,6 +255,177 @@ fn main() {
 
 ---
 
+## 6. 永続データ構造（Persistent Data Structure）
+
+### 永続データ構造とは
+
+**永続データ構造**（Persistent Data Structure）は、「更新」を行っても元の状態が保存され、古いバージョンと新しいバージョンの両方にアクセスできるデータ構造です。
+
+関数型プログラミングでは不変性が基本のため、全てのデータ構造が永続的です。Haskell のリストや Clojure の永続ベクタはその代表例です。
+
+```
+// 非永続（可変）
+let mut list = vec![1, 2, 3];
+list.push(4); // 元の [1,2,3] は失われる
+
+// 永続（不変）
+let v1 = vec![1, 2, 3];
+let v2 = [v1.as_slice(), &[4]].concat(); // v1 は保存される
+```
+
+### 構造共有（Structural Sharing）
+
+素朴な「全コピー」だと更新のたびに O(n) のコストがかかります。永続データ構造は**構造共有**によりこれを解決します。変更されない部分を古いバージョンと新しいバージョンで共有します。
+
+#### 永続連結リスト
+
+連結リストは構造共有が最も自然な例です。先頭への追加は O(1) で、古いリストと新しいリストが末尾部分を共有します。
+
+```
+v1 = [1, 2, 3]
+v2 = [0, 1, 2, 3]  ← 0 → v1 の先頭を共有
+
+メモリ上のイメージ:
+v1 →  1 → 2 → 3 → Nil
+v2 →  0 ↗
+         （0 の次が v1 の先頭を指している）
+```
+
+Rust での実装：
+
+```rust
+use std::rc::Rc;
+
+#[derive(Debug, Clone)]
+pub enum PersistentList<T> {
+    Nil,
+    Cons(T, Rc<PersistentList<T>>),
+}
+
+impl<T: Clone> PersistentList<T> {
+    pub fn empty() -> Rc<Self> {
+        Rc::new(PersistentList::Nil)
+    }
+
+    /// 先頭に値を追加した新しいリストを返す（元のリストは保存される）
+    pub fn cons(value: T, tail: Rc<Self>) -> Rc<Self> {
+        Rc::new(PersistentList::Cons(value, tail))
+    }
+
+    pub fn head(&self) -> Option<&T> {
+        match self {
+            PersistentList::Cons(v, _) => Some(v),
+            PersistentList::Nil => None,
+        }
+    }
+
+    pub fn tail(&self) -> Option<Rc<Self>> {
+        match self {
+            PersistentList::Cons(_, tail) => Some(Rc::clone(tail)),
+            PersistentList::Nil => None,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            PersistentList::Nil => 0,
+            PersistentList::Cons(_, tail) => 1 + tail.len(),
+        }
+    }
+}
+
+fn main() {
+    let base = PersistentList::cons(
+        1,
+        PersistentList::cons(2, PersistentList::cons(3, PersistentList::empty()))
+    );
+
+    // base に 0 を追加した新しいリスト
+    let extended = PersistentList::cons(0, Rc::clone(&base));
+
+    // base は変わらない
+    assert_eq!(base.head(), Some(&1));
+    assert_eq!(extended.head(), Some(&0));
+
+    // 末尾部分を共有している（Rc::ptr_eq で確認）
+    let extended_tail = extended.tail().unwrap();
+    assert!(Rc::ptr_eq(&base, &extended_tail)); // 同じメモリを指している
+}
+```
+
+### 永続スタック
+
+連結リストは自然に**永続スタック**として機能します：
+
+```rust
+type Stack<T> = Rc<PersistentList<T>>;
+
+fn push<T: Clone>(stack: Stack<T>, value: T) -> Stack<T> {
+    PersistentList::cons(value, stack)
+}
+
+fn pop<T: Clone>(stack: &Stack<T>) -> Option<(T, Stack<T>)> {
+    match stack.as_ref() {
+        PersistentList::Nil => None,
+        PersistentList::Cons(v, tail) => Some((v.clone(), Rc::clone(tail))),
+    }
+}
+
+fn main() {
+    let s0 = PersistentList::empty();
+    let s1 = push(s0, 10);
+    let s2 = push(Rc::clone(&s1), 20);
+    let s3 = push(Rc::clone(&s2), 30);
+
+    // s3 = [30, 20, 10]
+    // s2 = [20, 10]     ← s3 の操作後も保存されている
+    // s1 = [10]         ← s2 の操作後も保存されている
+
+    if let Some((top, rest)) = pop(&s3) {
+        assert_eq!(top, 30);
+        assert_eq!(rest.head(), Some(&20));
+    }
+
+    // 元のスタックは変わらない
+    assert_eq!(s2.head(), Some(&20));
+}
+```
+
+### Rust 標準の `Vec` との比較
+
+| 操作 | `Vec<T>`（非永続） | `PersistentList<T>`（永続） |
+|------|-----------------|-----------------------------|
+| 先頭追加 | O(n)（全要素シフト） | O(1)（構造共有） |
+| 末尾追加 | O(1) amortized | O(n)（全コピー） |
+| ランダムアクセス | O(1) | O(n) |
+| 古いバージョン保存 | 手動クローンが必要 | 自動（参照カウント） |
+| メモリ効率 | 良い | 参照カウント分のオーバーヘッド |
+
+### im クレート: 実用的な永続コレクション
+
+実際のプロジェクトでは [`im`](https://crates.io/crates/im) クレートが豊富な永続コレクションを提供します：
+
+```toml
+[dependencies]
+im = "15"
+```
+
+```rust
+// im クレートの使用例（参考）
+use im::Vector;
+
+let v1 = Vector::from(vec![1, 2, 3]);
+let v2 = v1.clone() + Vector::from(vec![4]); // O(log n) の構造共有
+
+// v1 は保存されている
+assert_eq!(v1.len(), 3);
+assert_eq!(v2.len(), 4);
+```
+
+`im` クレートは Haskell の Data.Sequence に相当する `Vector`（O(log n) のランダムアクセス・更新）や `HashMap`（O(log n）の永続マップ）を提供します。
+
+---
+
 ## まとめ
 
 | Rustの機能 | 関数型プログラミングとの対応 |
@@ -265,6 +436,7 @@ fn main() {
 | `&T` による借用 | 純粋関数（入力を変えない） |
 | `const` / `static` | 名前付き定数 |
 | struct update syntax | 不変データの「更新」（新インスタンス生成） |
+| `Rc<T>` + 共有ノード | 永続データ構造の構造共有 |
 
 不変性を中心に設計することで、コードの予測可能性が高まり、バグが減り、並行処理にも強くなります。
 
