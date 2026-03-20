@@ -1,0 +1,10 @@
+[book]
+title = "Rustで学ぶ関数型プログラミング"
+authors = ["Moto1829"]
+language = "ja"
+src = "content"
+
+[output.html]
+default-theme = "navy"
+git-repository-url = "https://github.com/Moto1829/study-of-functional-programming"
+edit-url-template = "https://github.com/Moto1829/study-of-functional-programming/edit/main/{path}"
