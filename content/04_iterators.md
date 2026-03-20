@@ -695,3 +695,52 @@ let large: Vec<i64> = (1..=1_000_000).collect();
 let _ = large.par_iter().map(|&x| x * x).collect::<Vec<_>>();
 ```
 
+
+---
+
+## よくある落とし穴と対処法
+
+### 落とし穴1: イテレータを消費し忘れる
+
+```rust
+let v = vec![1, 2, 3];
+v.iter().map(|&x| x * 2); // 警告: イテレータが消費されていない！
+
+// OK: collect() や for_each() で消費する
+let doubled: Vec<_> = v.iter().map(|&x| x * 2).collect();
+```
+
+### 落とし穴2: `into_iter()` と `iter()` の混同
+
+```rust
+let v = vec![1, 2, 3];
+
+// iter(): &i32 を返す（v は使える）
+let _: Vec<&i32> = v.iter().collect();
+println!("{:?}", v); // まだ使える
+
+// into_iter(): i32 を返す（v の所有権を消費）
+let _: Vec<i32> = v.into_iter().collect();
+// println!("{:?}", v); // エラー: v は移動済み
+```
+
+### 落とし穴3: `collect()` の型注釈を省略してコンパイルエラー
+
+```rust
+// NG: 型が推論できない
+let result = data.iter().map(|x| x * 2).collect(); // エラー
+
+// OK: 型を明示する
+let result: Vec<_> = data.iter().map(|x| x * 2).collect();
+// または
+let result = data.iter().map(|x| x * 2).collect::<Vec<_>>();
+```
+
+### 落とし穴4: rayon で順序を期待する
+
+```rust
+use rayon::prelude::*;
+let data = vec![3, 1, 4, 1, 5];
+let result: Vec<_> = data.par_iter().map(|&x| x * 2).collect();
+// result の順序は保証されない！ sort() が必要
+```

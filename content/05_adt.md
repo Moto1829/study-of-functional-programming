@@ -710,3 +710,48 @@ impl<T> List<T> {
 `F: Fn(T) -> U` ではなく `F: Fn(&T) -> U` にすると所有権を消費しない `map` になります。用途に応じて設計を検討してください。
 
 </details>
+
+---
+
+## よくある落とし穴と対処法
+
+### 落とし穴1: パターンマッチの網羅性を無視する
+
+```rust
+enum Direction { North, South, East, West }
+
+// NG: West を忘れた（コンパイラが警告を出す）
+match dir {
+    Direction::North => "north",
+    Direction::South => "south",
+    Direction::East => "east",
+    // West が漏れている！
+}
+```
+
+**対処法:** `_` は最後の手段。できるだけ全バリアントを明示的にマッチする。
+
+### 落とし穴2: `Option` のネスト
+
+```rust
+fn find_user(id: u32) -> Option<Option<String>> { // NG: ネストした Option
+    Some(Some("Alice".to_string()))
+}
+
+// OK: flatten() または and_then() で平坦化
+fn find_user(id: u32) -> Option<String> {
+    Some("Alice".to_string())
+}
+```
+
+### 落とし穴3: bool の代わりに enum を使わない
+
+```rust
+// NG: bool では意味が不明確
+fn process(is_admin: bool, is_active: bool) { ... }
+
+// OK: enum で状態を明確に表現
+enum UserRole { Admin, Regular }
+enum UserStatus { Active, Suspended }
+fn process(role: UserRole, status: UserStatus) { ... }
+```

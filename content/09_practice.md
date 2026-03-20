@@ -525,3 +525,51 @@ let mut cache: HashMap<u64, u64> = HashMap::new();
 | 評価ロジック | パターンマッチ + 再帰で構造を直接辿る |
 
 Rust は純粋な関数型言語ではありませんが、所有権・型推論・パターンマッチ・イテレータという強力な道具が揃っています。「副作用を型や構造で明示する」という関数型の思考法を取り入れることで、**安全で読みやすく、テストしやすいコード**が自然と生まれます。
+
+---
+
+## よくある落とし穴と対処法
+
+### 落とし穴1: 型設計で「合法な状態」を過大に許す
+
+```rust
+// NG: valid フラグで有効性を管理（invalid な組み合わせが存在できる）
+struct Config {
+    max_connections: u32,
+    timeout_ms: u64,
+    valid: bool, // 誰かが valid=false のまま使うかも
+}
+
+// OK: 不正な状態を型で排除
+struct ValidConfig {
+    max_connections: std::num::NonZeroU32,
+    timeout_ms: u64,
+}
+```
+
+### 落とし穴2: パターンマッチのネストが深すぎる
+
+```rust
+// NG: ネストが深くて読みにくい
+match result {
+    Ok(Some(value)) => {
+        if value > 0 {
+            match process(value) {
+                Ok(r) => Ok(r),
+                Err(e) => Err(e),
+            }
+        } else { Err(Error::NonPositive) }
+    }
+    Ok(None) => Err(Error::Missing),
+    Err(e) => Err(e),
+}
+
+// OK: ? 演算子とメソッドチェーンで平坦化
+let value = result?.ok_or(Error::Missing)?;
+ensure!(value > 0, Error::NonPositive);
+process(value)
+```
+
+### 落とし穴3: 実践プロジェクトでのエラー処理の省略
+
+プロトタイプでは `unwrap()` を多用しがちですが、本番コードでは必ず適切なエラー処理を行ってください。`thiserror` + `anyhow` の組み合わせで、後からエラー処理を追加しやすい設計にしましょう。

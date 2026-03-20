@@ -549,3 +549,50 @@ fn main() {
 ```rust
 // TODO: or_else_parser と many_parser を実装する
 ```
+
+---
+
+## よくある落とし穴と対処法
+
+### 落とし穴1: 関数合成の順序を間違える
+
+```rust
+// compose(f, g) は g(f(x)) か f(g(x)) か？
+// 数学の慣例では compose(f, g)(x) = f(g(x)) だが、
+// 多くの実装では左から右に適用する
+
+// 明確にするために pipe を使う
+let result = pipe(x, vec![double, add_one, square]);
+// x → double → add_one → square の順
+```
+
+**対処法:** 自作の `compose` 関数の順序を一貫させ、コメントで明示する。
+
+### 落とし穴2: クロージャの借用エラー
+
+```rust
+let prefix = String::from("Hello");
+
+// NG: prefix が複数のクロージャに借用される
+let f = |s: &str| format!("{}, {}", prefix, s);
+let g = |s: &str| format!("{} (from {})", s, prefix); // 同時借用
+
+// OK: clone して各クロージャに所有させる
+let p1 = prefix.clone();
+let f = move |s: &str| format!("{}, {}", p1, s);
+let f2 = move |s: &str| format!("{} (from {})", s, prefix);
+```
+
+### 落とし穴3: 過度な抽象化
+
+関数合成を多用しすぎると、コードが読みにくくなることがあります。
+
+```rust
+// NG: やりすぎ
+let result = compose(compose(compose(double, add_one), square), to_string)(5);
+
+// OK: 適切なバランス
+let doubled = double(5);
+let incremented = add_one(doubled);
+format!("{}", square(incremented))
+```

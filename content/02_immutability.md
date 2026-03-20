@@ -334,3 +334,48 @@ fn increment(counter: &mut i32) {
     *counter += 1;
 }
 ```
+
+---
+
+## よくある落とし穴と対処法
+
+### 落とし穴1: `mut` を付けすぎる
+
+```rust
+// NG: 不必要な mut
+let mut result = Vec::new();
+for x in &data {
+    result.push(x * 2);
+}
+
+// OK: イテレータで不変に変換
+let result: Vec<_> = data.iter().map(|&x| x * 2).collect();
+```
+
+### 落とし穴2: 内部可変性（`Cell` / `RefCell`）の乱用
+
+`RefCell<T>` は実行時にチェックするため、パニックのリスクがあります。
+
+```rust
+// 危険: 複数の可変借用でパニック
+let cell = RefCell::new(vec![1, 2, 3]);
+let _borrow1 = cell.borrow_mut();
+let _borrow2 = cell.borrow_mut(); // パニック！
+```
+
+**対処法:** 内部可変性は本当に必要な場合のみ使い、スコープを最小限に。
+
+### 落とし穴3: `clone()` の多用でパフォーマンス低下
+
+```rust
+// NG: 不必要なクローン
+fn process(data: Vec<i32>) -> Vec<i32> {
+    let cloned = data.clone(); // 不要なコピー
+    cloned.iter().map(|&x| x * 2).collect()
+}
+
+// OK: 参照を受け取る
+fn process(data: &[i32]) -> Vec<i32> {
+    data.iter().map(|&x| x * 2).collect()
+}
+```
