@@ -25,3 +25,13 @@
 - [第12章: 型状態パターン](12_type_state.md)
 - [第13章: 実践プロジェクト](13_project.md)
 - [第14章: OOP vs 関数型プログラミング比較](14_oop_vs_fp.md)
+
+---
+
+# 発展編
+
+- [第15章: Lenses / Optics](15_lenses.md)
+- [第16章: Monad Transformer](16_monad_transformer.md)
+- [第17章: Free Monad](17_free_monad.md)
+- [第18章: Effect System / Reader パターン](18_effect_system.md)
+- [第19章: Stream / 非同期イテレータ](19_stream.md)
