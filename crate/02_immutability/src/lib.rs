@@ -386,7 +386,7 @@ impl<T: Clone> PersistentList<T> {
     }
 
     /// 先頭を除いた残りのリストへの参照を返す。空なら `None`。
-    pub fn tail_ref(&self) -> Option<Rc<Self>> {
+    pub fn tail(&self) -> Option<Rc<Self>> {
         match self {
             PersistentList::Cons(_, tail) => Some(Rc::clone(tail)),
             PersistentList::Nil => None,
@@ -646,7 +646,7 @@ mod tests {
         assert_eq!(extended.to_vec(), vec![0, 1, 2, 3]);
 
         // 構造共有: extended の tail と base は同じ Rc を指す
-        let extended_tail = extended.tail_ref().unwrap();
+        let extended_tail = extended.tail().unwrap();
         assert!(Rc::ptr_eq(&base, &extended_tail));
     }
 
@@ -698,6 +698,6 @@ mod tests {
         // original（snapshot 経由）は変わっていない
         assert_eq!(snapshot.head(), Some(&5));
         assert_eq!(extended.head(), Some(&99));
-        assert_eq!(extended.tail_ref().unwrap().head(), Some(&5));
+        assert_eq!(extended.tail().unwrap().head(), Some(&5));
     }
 }

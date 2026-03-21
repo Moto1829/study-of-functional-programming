@@ -159,17 +159,12 @@ fn main() {
 Lens の最大の強みは**合成**です。`Person → Address` の Lens と `Address → city` の Lens を合成すると `Person → city` の Lens が作れます。
 
 ```rust
-impl<S: Clone, A: Clone> Lens<S, A> {
-    // self: S → A, other: A → B を合成して S → B の Lens を作る
-    fn compose<B: Clone>(&self, other: Lens<A, B>) -> impl Fn(&S) -> &B
-    where
-        S: 'static,
-        A: 'static,
-        B: 'static,
-    {
-        // compose は概念デモ。実用では関数として表現する
-        move |s| other.view(self.view(s)) // 注: ライフタイムの都合で簡略化
-    }
+// 2つの Lens を合成する関数 (S → A の Lens と A → B の Lens から S → B の getter を返す)
+pub fn compose<'a, S: Clone, A: Clone, B: Clone>(
+    outer: &'a Lens<S, A>,
+    inner: &'a Lens<A, B>,
+) -> impl Fn(&S) -> B + 'a {
+    move |s| inner.view(&outer.view(s))
 }
 
 // 合成した更新関数

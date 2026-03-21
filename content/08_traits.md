@@ -569,9 +569,14 @@ assert_eq!(sums.len(), 9);
 ### Applicative vs Monad の使い分け
 
 ```rust
+// 例として: 文字列から数値をパースする関数
+fn parse_a() -> Option<i32> { Some(3) }
+fn parse_b() -> Option<i32> { Some(4) }
+
 // Applicative（liftA2）: 両方の結果が独立している
 // → parse_a() と parse_b() はそれぞれ独立して実行される
 let result = option_lift2(|a, b| a + b, parse_a(), parse_b());
+assert_eq!(result, Some(7));
 
 // Monad（and_then）: 前の結果に依存して次の計算を決める
 // → parse_a() が失敗したら parse_b() も実行されない
@@ -579,6 +584,7 @@ let result = parse_a().and_then(|a| {
     if a > 0 { parse_b().map(|b| a + b) }
     else { None }
 });
+assert_eq!(result, Some(7));
 ```
 
 | 状況 | 使うべきパターン |

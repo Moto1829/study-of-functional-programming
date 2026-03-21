@@ -63,7 +63,7 @@ impl<Env: 'static, A: 'static> Reader<Env, A> {
     }
 
     /// 環境を渡して実行する
-    pub fn run_reader(self, env: &Env) -> A {
+    pub fn run_reader(&self, env: &Env) -> A {
         (self.run)(env)
     }
 
@@ -71,24 +71,18 @@ impl<Env: 'static, A: 'static> Reader<Env, A> {
     pub fn map<B: 'static, F>(self, f: F) -> Reader<Env, B>
     where
         F: Fn(A) -> B + 'static,
-        A: Clone,
     {
-        Reader::new(move |env| f(self.run_reader_ref(env)))
-    }
-
-    fn run_reader_ref(&self, env: &Env) -> A {
-        (self.run)(env)
+        Reader::new(move |env| f((self.run)(env)))
     }
 
     /// 次の Reader を連鎖させる（Monad の bind）
     pub fn and_then<B: 'static, F>(self, f: F) -> Reader<Env, B>
     where
         F: Fn(A) -> Reader<Env, B> + 'static,
-        A: Clone,
     {
         Reader::new(move |env| {
             let a = (self.run)(env);
-            f(a).run_reader_ref(env)
+            f(a).run_reader(env)
         })
     }
 }
