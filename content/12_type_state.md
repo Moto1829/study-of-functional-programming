@@ -137,6 +137,7 @@ pub struct Complete;
 
 pub struct Request<State> {
     url: String,
+    body: Option<String>,
     response: Option<String>,
     _state: PhantomData<State>,
 }

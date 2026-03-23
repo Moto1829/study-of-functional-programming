@@ -308,12 +308,12 @@ fn main() {
 
 ```rust
 /// 2つのパーサーを順に適用し、両方の結果をタプルで返すコンビネータ
-fn and_then_parser<A, B, PA, PB>(pa: PA, pb: PB) -> impl Fn(&str) -> ParseResult<(A, B)>
+pub fn and_then_parser<'a, A, B, PA, PB>(pa: PA, pb: PB) -> impl Fn(&'a str) -> ParseResult<'a, (A, B)>
 where
-    PA: Fn(&str) -> ParseResult<A>,
-    PB: Fn(&str) -> ParseResult<B>,
+    PA: Fn(&'a str) -> ParseResult<'a, A>,
+    PB: Fn(&'a str) -> ParseResult<'a, B>,
 {
-    move |input: &str| {
+    move |input: &'a str| {
         // まず pa を試みる
         let (rest, a) = pa(input)?;
         // 残りの入力に pb を試みる
@@ -323,12 +323,12 @@ where
 }
 
 /// パーサーに変換関数を適用するコンビネータ (Functor の map に相当)
-fn map_parser<A, B, P, F>(parser: P, f: F) -> impl Fn(&str) -> ParseResult<B>
+pub fn map_parser<'a, A, B, P, F>(parser: P, f: F) -> impl Fn(&'a str) -> ParseResult<'a, B>
 where
-    P: Fn(&str) -> ParseResult<A>,
+    P: Fn(&'a str) -> ParseResult<'a, A>,
     F: Fn(A) -> B,
 {
-    move |input: &str| {
+    move |input: &'a str| {
         let (rest, a) = parser(input)?;
         Ok((rest, f(a)))
     }

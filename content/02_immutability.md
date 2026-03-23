@@ -107,8 +107,7 @@ fn sum(values: &[i32]) -> i32 {
 /// 文字列が回文かどうかを判定する純粋関数。
 fn is_palindrome(s: &str) -> bool {
     let chars: Vec<char> = s.chars().collect();
-    let reversed: Vec<char> = chars.iter().rev().cloned().collect();
-    chars == reversed
+    chars.iter().zip(chars.iter().rev()).all(|(a, b)| a == b)
 }
 ```
 

@@ -111,7 +111,12 @@ pub fn summarize_by_category(records: &[Record]) -> Vec<Summary> {
             let count = values.len();
             let total = values.iter().sum::<f64>();
             let average = total / count as f64;
-            Summary { category, count, total, average }
+            Summary {
+                category,
+                count,
+                total: (total * 100.0).round() / 100.0,
+                average: (average * 100.0).round() / 100.0,
+            }
         })
         .collect();
 

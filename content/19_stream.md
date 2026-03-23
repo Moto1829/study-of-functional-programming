@@ -231,7 +231,7 @@ impl Stream for FibStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.a;
-        let next = self.a + self.b;
+        let next = self.a.saturating_add(self.b);
         self.a = self.b;
         self.b = next;
         Some(result) // 無限に Some を返す

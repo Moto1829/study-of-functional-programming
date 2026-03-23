@@ -217,8 +217,11 @@ fn main() {
 /// 文字列が回文かどうかを判定する（純粋関数）
 fn is_palindrome(s: &str) -> bool {
     let chars: Vec<char> = s.chars().collect();
-    let reversed: Vec<char> = chars.iter().rev().cloned().collect();
-    chars == reversed
+    let len = chars.len();
+    chars[..len / 2]
+        .iter()
+        .zip(chars[len / 2 + len % 2..].iter().rev())
+        .all(|(a, b)| a == b)
 }
 
 /// 単語リストから回文のみを抽出する（純粋関数）

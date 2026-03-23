@@ -394,28 +394,33 @@ use std::fmt;
 use std::num::ParseIntError;
 
 /// アプリケーション全体のエラー型
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AppError {
-    /// 文字列パースに失敗した
-    ParseError(ParseIntError),
+    /// 文字列パースに失敗した（エラーメッセージを文字列で保持）
+    ParseError(String),
     /// 入力値が許容範囲外
     OutOfRange { value: i32, min: i32, max: i32 },
-    /// 設定ファイルが見つからない
-    ConfigNotFound(String),
+    /// 0 による除算
+    DivisionByZero,
+    /// 設定キーが見つからない
+    KeyNotFound(String),
 }
 
 // ユーザー向けのエラーメッセージ
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AppError::ParseError(e) => {
-                write!(f, "パースエラー: {}", e)
+            AppError::ParseError(msg) => {
+                write!(f, "パースエラー: {}", msg)
             }
             AppError::OutOfRange { value, min, max } => {
                 write!(f, "値 {} は範囲 [{}, {}] の外です", value, min, max)
             }
-            AppError::ConfigNotFound(path) => {
-                write!(f, "設定ファイルが見つかりません: {}", path)
+            AppError::DivisionByZero => {
+                write!(f, "0 による除算は許可されていません")
+            }
+            AppError::KeyNotFound(key) => {
+                write!(f, "キー '{}' が見つかりません", key)
             }
         }
     }
@@ -424,10 +429,8 @@ impl fmt::Display for AppError {
 // std::error::Error を実装することで汎用的なエラートレイトとして扱える
 impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            AppError::ParseError(e) => Some(e),
-            _ => None,
-        }
+        // ParseError は元のエラー型を文字列に変換して保持しているため None
+        None
     }
 }
 ```
@@ -445,7 +448,7 @@ use std::num::ParseIntError;
 /// これにより parse::<i32>()?  が AppError を返す関数で使える
 impl From<ParseIntError> for AppError {
     fn from(e: ParseIntError) -> Self {
-        AppError::ParseError(e)
+        AppError::ParseError(e.to_string())
     }
 }
 

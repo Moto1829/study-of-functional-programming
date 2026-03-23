@@ -74,27 +74,27 @@ fn main() {
 ## Rust で Lens を実装する
 
 ```rust
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Address {
     city: String,
     zip: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Person {
     name: String,
     age: u32,
     address: Address,
 }
 
-// Lens の定義
+// Lens の定義: get は参照ではなく所有値を返す（A: Clone が必要）
 struct Lens<S, A> {
-    get: fn(&S) -> &A,
+    get: fn(&S) -> A,
     set: fn(S, A) -> S,
 }
 
-impl<S, A> Lens<S, A> {
-    fn view<'a>(&self, s: &'a S) -> &'a A {
+impl<S: Clone, A: Clone> Lens<S, A> {
+    fn view(&self, s: &S) -> A {
         (self.get)(s)
     }
 
@@ -105,9 +105,8 @@ impl<S, A> Lens<S, A> {
     fn modify<F>(&self, s: S, f: F) -> S
     where
         F: FnOnce(A) -> A,
-        A: Clone,
     {
-        let a = (self.get)(&s).clone();
+        let a = (self.get)(&s);
         self.update(s, f(a))
     }
 }
@@ -115,7 +114,7 @@ impl<S, A> Lens<S, A> {
 // Person → address の Lens
 fn person_address_lens() -> Lens<Person, Address> {
     Lens {
-        get: |p| &p.address,
+        get: |p| p.address.clone(),
         set: |p, addr| Person { address: addr, ..p },
     }
 }
@@ -123,7 +122,7 @@ fn person_address_lens() -> Lens<Person, Address> {
 // Address → city の Lens
 fn address_city_lens() -> Lens<Address, String> {
     Lens {
-        get: |a| &a.city,
+        get: |a| a.city.clone(),
         set: |a, city| Address { city, ..a },
     }
 }
@@ -142,11 +141,12 @@ fn main() {
     let city_lens = address_city_lens();
 
     // address.city を取得
-    let city = city_lens.view(addr_lens.view(&person));
+    let address = addr_lens.view(&person);
+    let city = city_lens.view(&address);
     println!("City: {}", city); // "Tokyo"
 
     // address.city を "Osaka" に更新
-    let new_address = city_lens.update(addr_lens.view(&person).clone(), "Osaka".to_string());
+    let new_address = city_lens.update(addr_lens.view(&person), "Osaka".to_string());
     let updated_person = addr_lens.update(person.clone(), new_address);
     println!("{:?}", updated_person);
 }
@@ -172,7 +172,7 @@ fn set_city(person: Person, new_city: String) -> Person {
     let addr_lens = person_address_lens();
     let city_lens = address_city_lens();
 
-    let new_address = city_lens.update(addr_lens.view(&person).clone(), new_city);
+    let new_address = city_lens.update(addr_lens.view(&person), new_city);
     addr_lens.update(person, new_address)
 }
 

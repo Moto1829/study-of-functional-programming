@@ -237,16 +237,16 @@ Rust で最も実用的な「Monad Transformer 的」テクニックは、`?` �
 ```rust
 use std::num::ParseIntError;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum AppError {
-    Parse(ParseIntError),
+    Parse(String),
     Logic(String),
     NotFound,
 }
 
 impl From<ParseIntError> for AppError {
     fn from(e: ParseIntError) -> Self {
-        AppError::Parse(e)
+        AppError::Parse(e.to_string())
     }
 }
 

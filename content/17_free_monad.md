@@ -129,16 +129,12 @@ impl<A: 'static> Program<A> {
 スマートコンストラクタと `and_then` を使って、副作用を持たない純粋なデータとしてプログラムを記述します：
 
 ```rust
-fn transfer_value(from: &str, to: &str) -> Program<bool> {
-    get(from).and_then(move |from_val| {
-        match from_val {
-            None => Program::Pure(false),
-            Some(val) => {
-                set(to, val.clone())
-                    .and_then(move |_| delete(from))
-                    .and_then(|_| Program::Pure(true))
-            }
-        }
+pub fn transfer_value(from: &'static str, to: &'static str) -> Program<bool> {
+    get(from).and_then(move |from_val| match from_val {
+        None => Program::Pure(false),
+        Some(val) => set(to, val)
+            .and_then(move |_| delete(from))
+            .and_then(|_| Program::Pure(true)),
     })
 }
 ```
@@ -155,7 +151,7 @@ fn transfer_value(from: &str, to: &str) -> Program<bool> {
 use std::collections::HashMap;
 
 // 本番用: 実際の HashMap で実行
-pub fn run_in_memory(program: Program<bool>, store: &mut HashMap<String, String>) -> bool {
+pub fn run_in_memory<A>(program: Program<A>, store: &mut HashMap<String, String>) -> A {
     match program {
         Program::Pure(a) => a,
         Program::Step(op) => match op {
@@ -181,11 +177,11 @@ pub fn run_in_memory(program: Program<bool>, store: &mut HashMap<String, String>
 ## インタープリタ: テスト用 (ログ付き)
 
 ```rust
-pub fn run_with_log(
-    program: Program<bool>,
+pub fn run_with_log<A>(
+    program: Program<A>,
     store: &mut HashMap<String, String>,
     log: &mut Vec<String>,
-) -> bool {
+) -> A {
     match program {
         Program::Pure(a) => a,
         Program::Step(op) => match op {
