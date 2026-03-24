@@ -6,5 +6,6 @@ src = "content"
 
 [output.html]
 default-theme = "navy"
+description = "Rustを使って関数型プログラミングの概念を学ぶ入門書。イミュータビリティ、クロージャ、イテレータ、代数的データ型など、関数型プログラミングの重要な概念をRustのコードで解説します。"
 git-repository-url = "https://github.com/Moto1829/study-of-functional-programming"
 edit-url-template = "https://github.com/Moto1829/study-of-functional-programming/edit/main/{path}"
