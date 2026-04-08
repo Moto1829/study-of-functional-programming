@@ -251,6 +251,144 @@ fn main() {
 
 ---
 
+## 1.6 純粋関数と副作用関数をもう一段深く理解する
+
+ここでは「定義」だけでなく、実務で迷いやすいポイントを整理します。
+
+### 1.6.1 何が純粋で、何が副作用か
+
+| 処理 | 純粋/副作用 | 理由 |
+|------|-------------|------|
+| `税込価格を計算する` | 純粋 | 入力（税抜価格・税率）が同じなら結果は同じ |
+| `在庫数を1減らす` | 副作用 | 外部状態（DBの在庫）を書き換える |
+| `現在時刻を取得する` | 副作用 | 呼び出しタイミングで結果が変わる |
+| `ログを出力する` | 副作用 | 標準出力・ファイルに書き込む |
+| `入力文字列を正規化する` | 純粋 | 入力文字列から決定論的に変換できる |
+
+実務で重要なのは次の見分け方です。
+
+- **「外の世界」に触っているか？**: DB、ファイル、時刻、乱数、ネットワーク
+- **同じ引数で結果が変わる可能性があるか？**
+- **戻り値以外の何かを変えているか？**
+
+### 1.6.2 よくある誤解
+
+誤解1: `mut` を使ったら必ず不純
+
+- `mut` はローカル変数の更新にすぎず、外部状態を変えないなら純粋に保てる場合があります。
+- ただし、可変更新が増えるほど読み解きが難しくなるので、式ベースの記述を優先すると安全です。
+
+誤解2: 副作用は悪なのでゼロにすべき
+
+- 実用アプリは必ず副作用を持ちます（表示、保存、送信）。
+- ゴールは「副作用ゼロ」ではなく、**副作用の場所を限定すること**です。
+
+誤解3: 純粋関数は学術的で業務に向かない
+
+- むしろ業務コードほど効果が出ます。理由は「壊れやすい部分（I/O）と壊れにくい部分（計算ロジック）を分離できる」からです。
+
+### 1.6.3 設計パターン: Functional Core, Imperative Shell
+
+実務で最も使いやすいのがこの考え方です。
+
+- **Functional Core（内側）**: 純粋関数でビジネスルールを書く
+- **Imperative Shell（外側）**: 入出力・DBアクセス・API呼び出しを担当
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Order {
+    total: i32,
+    coupon: Option<i32>,
+}
+
+/// 純粋関数: 価格計算ルールだけに集中
+fn final_price(order: &Order) -> i32 {
+    let discounted = match order.coupon {
+        Some(discount) => order.total - discount,
+        None => order.total,
+    };
+    discounted.max(0)
+}
+
+/// 副作用関数: I/Oを担当（例: 保存やログ出力）
+fn checkout(order: &Order) {
+    let price = final_price(order); // 純粋なコアを利用
+    println!("請求額: {}", price);    // ここは副作用
+    // save_to_db(order, price);      // ここも副作用
+}
+```
+
+この構造にすると、`final_price` はDB不要・モック不要で高速にテストできます。
+
+---
+
+## 1.7 関数型を知らなくても得られる具体的な恩恵
+
+「FPを全面採用」しなくても、純粋関数の考え方を部分導入するだけで効果があります。
+
+### 1.7.1 テストコストが下がる
+
+- 純粋関数は入力と出力だけを見ればよい
+- テスト前の準備（DB初期化、時刻固定、環境変数設定）が減る
+- 失敗時の原因切り分けが早い
+
+### 1.7.2 仕様変更に強くなる
+
+- 「計算ルール」を純粋関数として分離しておくと、変更点が局所化される
+- 副作用レイヤー（保存、送信、表示）への影響が小さくなる
+
+### 1.7.3 並行処理で壊れにくくなる
+
+- 純粋関数は共有可変状態を持たないため、データ競合が起きにくい
+- Rustの所有権モデルと組み合わせると、並行処理の安全性がさらに高まる
+
+### 1.7.4 レビューしやすくなる
+
+- 純粋関数: 「この式は正しいか」を確認すればよい
+- 副作用関数: 「どの外部資源に触るか」を確認すればよい
+- 観点が分かれるため、レビューの見通しが良くなる
+
+---
+
+## 1.8 既存コードに段階的に導入する手順
+
+一気に関数型へ寄せる必要はありません。次の順で十分です。
+
+1. **副作用ポイントを洗い出す**
+   - `println!`, ファイルI/O, DBアクセス, HTTP, `SystemTime::now()` など
+2. **計算ロジックだけを純粋関数として切り出す**
+   - 入力は引数、結果は戻り値に寄せる
+3. **副作用は境界に集約する**
+   - `main`、ハンドラ、リポジトリ層など「外側」に閉じ込める
+4. **純粋関数から先にテストを書く**
+   - 最小コストで失敗しにくいテスト資産が増える
+
+以下は導入のミニ例です。
+
+```rust
+// Before: 計算と副作用が混在
+fn register_user(name: &str) {
+    let normalized = name.trim().to_lowercase();
+    println!("registering: {}", normalized); // 副作用
+    // db_insert(&normalized);                // 副作用
+}
+
+// After: 計算は純粋関数へ分離
+fn normalize_user_name(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+fn register_user(name: &str) {
+    let normalized = normalize_user_name(name); // 純粋
+    println!("registering: {}", normalized);   // 副作用
+    // db_insert(&normalized);                  // 副作用
+}
+```
+
+このように、まずは「1つの関数だけ分離」から始めれば十分です。
+
+---
+
 ## まとめ
 
 | 概念 | ポイント |
@@ -386,3 +524,107 @@ fn greet(name: &str, timestamp: u64) -> String {
 こうすると、`greet("Alice", 1000)` は常に `"[1000] Hello, Alice!"` を返すため参照透過になります。タイムスタンプの取得（副作用）は呼び出し側に委ねます。
 
 </details>
+
+---
+
+## 追加演習（実務寄り）
+
+### 問題 4
+
+次の関数は「バリデーション」と「副作用（ログ出力）」が混在しています。純粋関数と副作用関数に分離してください。
+
+```rust
+fn validate_and_log_username(name: &str) -> bool {
+    let valid = !name.trim().is_empty() && name.len() <= 20;
+    println!("validate username='{}' => {}", name, valid);
+    valid
+}
+```
+
+<details>
+<summary>解答例</summary>
+
+```rust
+fn is_valid_username(name: &str) -> bool {
+    !name.trim().is_empty() && name.len() <= 20
+}
+
+fn validate_and_log_username(name: &str) -> bool {
+    let valid = is_valid_username(name); // 純粋な判定
+    println!("validate username='{}' => {}", name, valid); // 副作用
+    valid
+}
+```
+
+</details>
+
+### 問題 5
+
+以下の仕様を満たす純粋関数 `apply_discount` を実装してください。
+
+- 入力: `price: i32`, `discount: i32`
+- ルール: `price - discount` を返す
+- ただし負の価格は許可しない（最小0）
+
+<details>
+<summary>解答例</summary>
+
+```rust
+fn apply_discount(price: i32, discount: i32) -> i32 {
+    (price - discount).max(0)
+}
+```
+
+</details>
+
+### 問題 6
+
+次の関数は不純です。テストしやすくするため、純粋関数と副作用関数に分離してください。
+
+```rust
+fn welcome_message(name: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    format!("[{}] Welcome, {}", now, name)
+}
+```
+
+<details>
+<summary>解答例</summary>
+
+```rust
+fn welcome_message_pure(name: &str, timestamp: u64) -> String {
+    format!("[{}] Welcome, {}", timestamp, name)
+}
+
+fn welcome_message(name: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    welcome_message_pure(name, now)
+}
+```
+
+</details>
+
+---
+
+## 実行サンプル
+
+純粋関数と副作用関数の分離を、実際に動かして確認できるサンプルを用意しています。
+
+- サンプル: `crate/01_basics/src/bin/pure_vs_effect_demo.rs`
+- 実行コマンド:
+
+```bash
+cargo run -p basics --bin pure_vs_effect_demo
+```
+
+このサンプルでは、次を確認できます。
+
+- 価格計算ルールは純粋関数として安定して再利用できる
+- ログ表示や疑似保存は副作用関数に閉じ込められる
+- 同じ入力なら同じ結果を返すため、仕様変更時の影響範囲を小さくできる
